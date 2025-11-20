@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <meta name="description" content="计算巢是阿里云开放给企业应用服务商的服务管理平台。服务商能够在计算巢上发布私有化部署服务，为其客户提供云上软件一键部署的能力；同时也支持全托管模式的服务，赋能服务商托管其客户资源。">
+  <title>在ACS集群中使用 E2B 管理安全沙箱 - Aliyun 计算巢 x Demo</title>
+
+  <link rel="shortcut icon" href="img/favicon.ico">
+
+  <link rel="stylesheet" href="https://unpkg.com/purecss@1.0.0/build/pure-min.css">
+  <link rel="stylesheet" href="css/theme.css">
+  
+
+  
+
+  
+  
+
+  
+    <script src="search/main.js"></script>
+  
+
+  
+
+  <script src="js/highlight.min.js"></script>
+  <script>hljs.highlightAll();</script>
+</head>
+
+<body>
+  <div class="container">
+    <div class="nav">
+      <div class="nav-inner">
+        <div class="logo">
+          <img src="./img/logo-2x.png">
+        </div>
+        <div class="nav-list">
+          <ul>
+          
+              <li><a href="#acs-e2b">在ACS集群中使用 E2B 管理安全沙箱</a></li>
+              
+                  <li><a href="#_1">概述</a></li>
+                  
+              
+                  <li><a href="#_2">前提准备</a></li>
+                  
+                      <li class="li-h3"><a href="#_3">准备域名</a></li>
+                  
+              
+                  <li><a href="#_5">部署流程</a></li>
+                  
+              
+                  <li><a href="#_6">使用沙箱</a></li>
+                  
+                      <li class="li-h3"><a href="#_7">配置域名的解析</a></li>
+                  
+                      <li class="li-h3"><a href="#demo">使用沙箱demo</a></li>
+                  
+                      <li class="li-h3"><a href="#_9">执行代码</a></li>
+                  
+                      <li class="li-h3"><a href="#_10">控制桌面</a></li>
+                  
+                      <li class="li-h3"><a href="#_11">控制浏览器</a></li>
+                  
+              
+          
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="content theme-github">
+      
+      <div class="content-inner">        
+        
+        <h1 id="acs-e2b">在ACS集群中使用 E2B 管理安全沙箱</h1>
+<h2 id="_1">概述</h2>
+<p>E2B 是一个流行的开源安全沙箱框架，提供了一套简单易用的 Python 与 JavaScript SDK 供用户对安全沙箱进行创建、查询、执行代码、请求端口等操作。
+acs-sandbox-manager组件是一个兼容 E2B 协议的后端应用，使用户在任何 K8s 集群中一键搭建一个性能媲美原生 E2B 的沙箱基础设施。</p>
+<p>本服务提供了在ACS 集群中快速搭建安全沙箱的解决方案，支持使用 E2B 协议进行交互。</p>
+<h2 id="_2">前提准备</h2>
+<p>标准的 E2B 协议需要一个域名（E2B_DOMAIN）来指定后端服务。为此，您需要准备一个自己的域名。
+E2B 客户端必须通过 HTTPS 协议请求后端，并且每次请求的子域名都可能不同，因此还需要为服务申请一个通配符证书。</p>
+<h3 id="_3">准备域名</h3>
+<ul>
+<li>如果您还没有域名，可以参考文档 <a href="https://help.aliyun.com/zh/dws/getting-started/quickly-register-a-new-domain-name">域名注册快速入门</a> 注册一个自己的域名。</li>
+<li>如果您的服务部署在中国内地，还需要为域名进行备案，参考文档：<a href="https://help.aliyun.com/zh/dws/icp-filing">域名备案</a>。</li>
+</ul>
+<h4 id="_4">获取泛域名通配符证书</h4>
+<p>在生产场景下，推荐您参考文档 <a href="https://help.aliyun.com/zh/ssl-certificate/user-guide/purchase-an-ssl-certificate">购买正式证书</a> 申请一个正式的通配符域名证书。</p>
+<p>在测试场景下，您可以参考以下步骤通过 Let's Encrypt 申请一个免费的测试证书。
+1. 通过系统的包管理器（brew、snap 等）安装 certbot，更多安装信息请查看 <a href="https://certbot.eff.org/">官方文档</a>。
+2. 参考以下命令，修改 -d 与 --email 的参数为泛域名*.your.domain.cn 申请通配符证书。请根据命令的提示进行验证操作。</p>
+<pre><code class="language-bash">$ sudo certbot certonly \
+  --manual \
+  --preferred-challenges=dns \
+  --email your-email@example.com \
+  --server https://acme-v02.api.letsencrypt.org/directory \
+  --agree-tos \
+  -d &quot;*.your.domain.cn&quot;
+</code></pre>
+<ol>
+<li>导出证书</li>
+</ol>
+<pre><code class="language-bash">$ sudo cp /etc/letsencrypt/live/your.domain/fullchain.pem ./fullchain.pem
+$ sudo cp /etc/letsencrypt/live/your.domain/privkey.pem ./privkey.pem
+</code></pre>
+<h2 id="_5">部署流程</h2>
+<ol>
+<li>打开计算巢服务<a href="https://computenest.console.aliyun.com/service/instance/create/cn-hangzhou?type=user&amp;ServiceId=service-47d7c54c78604e0bbe79">部署链接</a></li>
+<li>填写相关部署参数、选择部署地域、ACS集群的Service CIDR, 专有网络配置<img alt="img_1.png" src="img_1.png" /> </li>
+<li>填写E2B 域名配置，E2B的访问域名配置为上述前提准备阶段的域名， </li>
+<li>TLS 证书选择fullchain.pem文件</li>
+<li>TLS 证书私钥选择privkey.pem文件
+         <img alt="img.png" src="img.png" />
+4.配置完成后，点击确认订单</li>
+</ol>
+<h2 id="_6">使用沙箱</h2>
+<p>部署完成后，会得到一个对应的ACS集群，ACS集群中在sandbox-system命名空间下有sandbox-manager的Deployment，用于管理沙箱
+ 创建出来的沙箱，会在default 命名空间下</p>
+<h3 id="_7">配置域名的解析</h3>
+<ol>
+<li>集群中使用MSE 网关作为Ingress，在<a href="https://mse.console.aliyun.com/#/microgw?region=cn-hangzhou">MSE控制台</a>找到ACS集群创建出来的网关，可以通过标签来查找
+<img alt="img_2.png" src="img_2.png" /></li>
+<li>获取到MSE网关的公网域名 <img alt="img_3.png" src="img_3.png" /></li>
+<li>请将主机记录 *.your.domain.cn 以 CNAME 记录类型解析到对应域名。</li>
+</ol>
+<h3 id="demo">使用沙箱demo</h3>
+<p>acs-sandbox-manager 组件暂时只支持以下三个内置的模板：
+1. code-interpreter：E2B 官方的 code-interpreter 镜像，可以执行 Python 代码。
+2. desktop：E2B 官方的 desktop 镜像，用于通过 e2b_desktop 库远程操作图形桌面。
+3. browser：Google 官方的 headless-shell 镜像，为 browser_use 等应用提供了 Chrome 浏览器环境。</p>
+<h4 id="_8">设置环境变量</h4>
+<pre><code class="language-bash">export E2B_DOMAIN=your.domain.cn
+
+</code></pre>
+<h3 id="_9">执行代码</h3>
+<p>以下脚本演示了创建沙箱、执行代码、读写文件、销毁沙箱等基本功能。</p>
+<pre><code class="language-python">import os
+# Import the E2B SDK
+from e2b_code_interpreter import Sandbox
+
+# Create a sandbox using the E2B Python SDK
+sbx = Sandbox.create(template=&quot;code-interpreter&quot;, timeout=300)
+print(f&quot;sandbox id: {sbx.sandbox_id}&quot;)
+
+def execute_python_code(s: Sandbox, code: str):
+    # Execute Python code inside the sandbox
+    execution = s.run_code(code)
+    if execution.error:
+        print(f&quot;Error executing code: {execution.error}&quot;)
+    else:
+        print(execution.logs.stdout)
+
+execute_python_code(sbx, &quot;print('hello world')&quot;)
+execute_python_code(sbx, &quot;a = 1&quot;)
+execute_python_code(sbx, &quot;b = 2&quot;)
+execute_python_code(sbx, &quot;print(a + b)&quot;)
+
+execute_python_code(sbx, &quot;&quot;&quot;
+def bubble_sort(arr):
+    n = len(arr)
+    # 创建数组副本，避免修改原数组
+    sorted_arr = arr.copy()
+
+    # 外层循环控制排序轮数
+    for i in range(n):
+        # 标记本轮是否发生交换
+        swapped = False
+        # 内层循环进行相邻元素比较
+        for j in range(0, n - i - 1):
+            # 如果前一个元素大于后一个元素，则交换
+            if sorted_arr[j] &gt; sorted_arr[j + 1]:
+                sorted_arr[j], sorted_arr[j + 1] = sorted_arr[j + 1], sorted_arr[j]
+                swapped = True
+        # 如果本轮没有发生交换，说明数组已经有序，可以提前结束
+        if not swapped:
+            break
+
+    return sorted_arr
+print(bubble_sort([1,6,4,2,3,7,5]))
+&quot;&quot;&quot;)
+
+# List files in the sandbox
+try:
+    # Read local file relative to the current working directory
+    with open(os.path.abspath(__file__), &quot;rb&quot;) as file:
+        sbx.files.write(&quot;/home/user/my-file&quot;, file)
+    file_content = sbx.files.read(&quot;/home/user/my-file&quot;)
+    print(file_content)
+except Exception as e:
+    # Print the full stack trace for debugging
+    import traceback
+
+    traceback.print_exc()
+    print(f&quot;Error listing files: {e}&quot;)
+    raise e
+finally:
+    sbx.kill()
+    print(f&quot;sandbox {sbx.sandbox_id} killed&quot;)
+
+</code></pre>
+<p>预期输出</p>
+<pre><code class="language-html">sandbox id: code-interpreter-5df5b8dd48-dpxjb
+['hello world\n']
+[]
+[]
+['3\n']
+['[1, 2, 3, 4, 5, 6, 7]\n']
+</code></pre>
+<h3 id="_10">控制桌面</h3>
+<p>以下脚本演示了申请沙箱、启动程序、键盘输入、销毁沙箱等基本功能。
+模板仅内置了一个未优化的桌面环境，启动时会有一些弹窗，需要通过串流手动关闭后再执行 Chrome 访问百度的自动化操作。</p>
+<pre><code class="language-python">import time
+
+from e2b_desktop import Sandbox
+
+# Create a new desktop sandbox
+desktop = Sandbox.create(api_key=&quot;GG&quot;, template=&quot;desktop&quot;)
+print(f&quot;sandboxId: {desktop.sandbox_id}&quot;)
+# Launch an application
+desktop.launch('google-chrome')  # or vscode, firefox, etc.
+print(&quot;waiting 5 seconds for desktop launching&quot;)
+time.sleep(5)
+# Stream the application's window
+# Note: There can be only one stream at a time
+# You need to stop the current stream before streaming another application
+desktop.stream.start(
+    # window_id=desktop.get_current_window_id(), # if not provided the whole desktop will be streamed
+    require_auth=True
+)
+
+# Get the stream auth key
+auth_key = desktop.stream.get_auth_key()
+
+# Print the stream URL
+print('Stream URL:', desktop.stream.get_url(auth_key=auth_key))
+
+input(&quot;select the address bar and press ENTER to visit baidu.com&quot;)
+desktop.write(&quot;www.baidu.com&quot;)
+time.sleep(0.5)
+desktop.press(&quot;enter&quot;)
+
+input(&quot;press ENTER to exit&quot;)
+
+
+# Kill the sandbox after the tasks are finished
+desktop.kill()
+</code></pre>
+<p>等待桌面串流启动</p>
+<pre><code>sandboxId: desktop-7c84c88b8-tpjmg
+waiting 5 seconds for desktop launching
+Stream URL: https://6080-desktop-7c84c88b8-tpjmg.your.domain/vnc.html?autoconnect=true&amp;resize=scale&amp;password=*****
+select the address bar and press ENTER to visit baidu.com
+</code></pre>
+<p>访问 Stream URL，可以看到一个打开了 Chrome 的 Linux 桌面
+回到终端敲回车，可以看到桌面自动打开了百度。</p>
+<h3 id="_11">控制浏览器</h3>
+<p>内置模板browser是以 E2B Sandbox 形式透出，兼容开源项目browser_use的浏览器环境。相比desktop模板，将整个桌面环境替换为了一个 headless chrome 浏览器，提高了资源利用效率。
+这个例子使用 browser_use 框架编写了一个完整的 Agent，该 Agent 通过 OpenAI 协议调用了阿里云百联平台上的 qwen-plus 大模型。因此，如果要体验该实例您需要在百炼平台上创建一个 API Key 并配置以下环境变量：</p>
+<pre><code class="language-bash">export LLM_API_KEY=sk-*********
+export LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+</code></pre>
+<p>以下脚本演示了如何从沙箱中获取浏览器 session 并让 Agent 使用以执行任务</p>
+<pre><code class="language-python">import asyncio
+import os
+import time
+
+from browser_use import Agent, BrowserSession
+from browser_use.llm import ChatOpenAI
+from e2b_code_interpreter import Sandbox
+
+async def screenshot(agent: Agent):
+    try:
+        print(&quot;开始截图...&quot;)
+        page = await agent.browser_session.get_current_page()
+        screenshot_bytes = await page.screenshot(full_page=True, type='png')
+        screenshots_dir = os.path.join(&quot;.&quot;, &quot;screenshots&quot;)
+        os.makedirs(screenshots_dir, exist_ok=True)
+        screenshot_path = os.path.join(screenshots_dir, f&quot;{time.time()}.png&quot;)
+        with open(screenshot_path, &quot;wb&quot;) as f:
+            f.write(screenshot_bytes)
+        print(f&quot;截图已保存至 {screenshot_path}&quot;)
+    except Exception as e:
+        print(f&quot;截图失败: {e}&quot;)
+
+async def main():
+    # 创建 E2B 沙箱实例
+    sandbox = Sandbox.create(api_key=&quot;GG&quot;, template=&quot;browser&quot;)
+    try:
+        # 创建 Browser-use 会话
+        browser_session = BrowserSession(cdp_url=f&quot;https://api.{sandbox.sandbox_domain}/browser/{sandbox.sandbox_id}&quot;) # 使用 cdp 协议连接远程沙箱中的浏览器
+        await browser_session.start()
+        print(&quot;Browser-use 会话创建成功&quot;)
+
+        # 创建 AI Agent
+        agent = Agent(
+            task=&quot;&quot;&quot;
+            从阿里云 ACS 产品计费官方文档（https://help.aliyun.com/zh/cs/product-overview/billing/）进入计费说明，总结不同地域、计算类型、算力质量的费用差别
+            &quot;&quot;&quot;,
+            llm=ChatOpenAI(
+                api_key=os.getenv(&quot;LLM_API_KEY&quot;),
+                base_url=os.getenv(&quot;LLM_BASE_URL&quot;),
+                model=&quot;qwen-plus&quot;,
+                temperature=1,
+            ),
+            browser_session=browser_session,
+        )
+
+        # 运行 Agent 任务
+        print(&quot;开始执行 Agent 任务...&quot;)
+        await agent.run(
+            on_step_end=screenshot, # 在每个步骤结束时调用 screenshot 截图
+        )
+
+        # 关闭浏览器会话
+        await browser_session.close()
+        print(&quot;任务执行完成&quot;)
+
+    finally:
+        # 清理沙箱资源
+        sandbox.kill()
+        print(&quot;沙箱资源已清理&quot;)
+
+if __name__ == &quot;__main__&quot;:
+    asyncio.run(main())
+</code></pre>
+<p>运行脚本后，在终端上可以看到大模型思考、执行的过程。每一步执行完毕后，都会截图保存在工作目录中的 screenshot 子目录下。</p>
+        
+      </div>
+
+      <div class="copyrights">© 2009-2022 Aliyun.com 版权所有</div>
+    </div>
+  </div>
+  
+  <!--
+  MkDocs version      : 1.6.1
+  Docs Build Date UTC : 2025-11-20 06:54:28.151279+00:00
+  -->
+</body>
+</html>
