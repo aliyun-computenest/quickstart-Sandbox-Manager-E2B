@@ -133,7 +133,7 @@ spec:
           restartPolicy: Always
       containers:
         - name: openclaw
-          image: registry.cn-hangzhou.aliyuncs.com/acs-samples/clawdbot:2026.1.24.3         
+          image: registry-cn-hangzhou.ack.aliyuncs.com/ack-demo/openclaw:2026.3.2        
           imagePullPolicy: IfNotPresent
           securityContext:
             runAsNonRoot: true #Pod 使用普通用户启动
@@ -200,7 +200,7 @@ template.spec.containers.securityContext.readOnlyRootFilesystem: false
 如果预期使用Pause，一定不要设置liveness/rediness的探针，避免在暂停期间的健康检查问题
 必要的修改
 registry-cn-hangzhou.ack.aliyuncs.com/acs/agent-runtime   # 修改为所在地域的镜像，并且是内网镜像【目前，未来会自动注入】
-registry.cn-hangzhou.aliyuncs.com/acs-samples/clawdbot:2026.1.24.3 # 替换为客户自己构建的镜像
+registry-cn-hangzhou.ack.aliyuncs.com/ack-demo/openclaw:2026.3.2  # 替换为客户自己构建的镜像
 机制的简要说明
 通过在pod启动envd，来支持e2b sdk的服务端接口
 
