@@ -208,6 +208,7 @@ registry-cn-hangzhou.ack.aliyuncs.com/ack-demo/openclaw:2026.3.2  # 替换为客
 ![img_6.png](img_6.png)
 
 替换xxxx为您前面指定的域名，返回值2xx表示e2b服务已运行,如果是自行签发的证书，需要指定ca-fullchain.pem；或通过配置环境变量使用您本地的证书 【该动作为创建sandbox的动作】
+```
 curl --cacert fullchain.pem -X POST --location "https://api.agent-vpc.infra/sandboxes" \
     -H "Content-Type: application/json" \
     -H "X-API-Key: admin-987654321" \
@@ -215,6 +216,7 @@ curl --cacert fullchain.pem -X POST --location "https://api.agent-vpc.infra/sand
           "templateID": "openclaw",
           "timeout": 300
         }'
+```
 当返回结果的json中，存在 "sandboxID" 且 "state":"running"，可以认为e2b服务已运行
 
 #### 设置环境变量
