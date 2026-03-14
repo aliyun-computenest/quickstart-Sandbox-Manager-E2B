@@ -247,7 +247,7 @@ sandbox default--openclaw-22j5l killed
 ```
 当预期返回中有沙箱Id时，可以认为E2B 服务已经正常运行了
 
-休眠唤醒测试代码
+休眠唤醒测试代码（需要到vpc内或者正式域名测试 配hosts的方式无法测试)
 ```
 写入如下文件到 openclaw.py
 
