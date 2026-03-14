@@ -178,28 +178,29 @@ spec:
 ```
 
 重要字段说明
-SandboxSet.spec.persistentContents:  filesystem #在pause，connect的过程中只保留文件系统（不保留ip、mem）
-template.spec.restartPolicy: Always
-template.spec.automountServiceAccountToken: false #Pod 不挂载 service account
-template.spec.enableServiceLinks: false #Pod 不注入 service 环境变量
+- SandboxSet.spec.persistentContents:  filesystem #在pause，connect的过程中只保留文件系统（不保留ip、mem）
+- template.spec.restartPolicy: Always
+- template.spec.automountServiceAccountToken: false #Pod 不挂载 service account
+- template.spec.enableServiceLinks: false #Pod 不注入 service 环境变量
 
-template.metadata.labels.alibabacloud.com/acs: "true"
-template.metadata.annotations.ops.alibabacloud.com/pause-enabled: "true" # 支持pause, connect 动作
+- template.metadata.labels.alibabacloud.com/acs: "true"
+- template.metadata.annotations.ops.alibabacloud.com/pause-enabled: "true" # 支持pause, connect 动作
 
-template.spec.initContainer #下载并copy envd 的环境 ， 保留即可
-template.spec.initContainers.restartPolicy: Always
+- template.spec.initContainer #下载并copy envd 的环境 ， 保留即可
+- template.spec.initContainers.restartPolicy: Always
 
-template.spec.containers.securityContext.runAsNonRoot: true  #Pod 使用普通用户启动
-template.spec.containers.securityContext.privileged: false # 禁用特权配置
-template.spec.containers.securityContext.allowPrivilegeEscalation: false
-template.spec.containers.securityContext.seccompProfile.type.RuntimeDefault 
-template.spec.containers.securityContext.capabilities.drop: [ALL]
-template.spec.containers.securityContext.readOnlyRootFilesystem: false
+- template.spec.containers.securityContext.runAsNonRoot: true  #Pod 使用普通用户启动
+- template.spec.containers.securityContext.privileged: false # 禁用特权配置
+- template.spec.containers.securityContext.allowPrivilegeEscalation: false
+- template.spec.containers.securityContext.seccompProfile.type.RuntimeDefault 
+- template.spec.containers.securityContext.capabilities.drop: [ALL]
+- template.spec.containers.securityContext.readOnlyRootFilesystem: false
 
 如果预期使用Pause，一定不要设置liveness/rediness的探针，避免在暂停期间的健康检查问题
 必要的修改
-registry-cn-hangzhou.ack.aliyuncs.com/acs/agent-runtime   # 修改为所在地域的镜像，并且是内网镜像【目前，未来会自动注入】
-registry-cn-hangzhou.ack.aliyuncs.com/ack-demo/openclaw:2026.3.2  # 替换为客户自己构建的镜像
+- registry-cn-hangzhou.ack.aliyuncs.com/acs/agent-runtime   # 修改为所在地域的镜像，并且是内网镜像【目前，未来会自动注入】
+- registry-cn-hangzhou.ack.aliyuncs.com/ack-demo/openclaw:2026.3.2  # 替换为客户自己构建的镜像
+
 机制的简要说明
 通过在pod启动envd，来支持e2b sdk的服务端接口
 
