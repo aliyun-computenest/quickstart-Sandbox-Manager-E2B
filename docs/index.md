@@ -103,6 +103,8 @@ metadata:
   labels:
     app: openclaw
 spec:
+  persistentContents: 
+  - filesystem
   replicas: 1
   template:
     metadata:
@@ -110,9 +112,11 @@ spec:
         alibabacloud.com/acs: "true" # 使用ACS算力
         app: openclaw
       annotations:
-        network.alibabacloud.com/pod-with-eip: "true" # 表示为每个Pod自动分配一个EIP实例
-        network.alibabacloud.com/eip-bandwidth: "5" # 表示EIP实例带宽为5 Mbps
+        ops.alibabacloud.com/pause-enabled: "true" # 支持pause
     spec:
+      restartPolicy: Always
+      automountServiceAccountToken: false #Pod 不挂载 service account
+      enableServiceLinks: false #Pod 不注入 service 环境变量
       initContainers:
         - name: init
           image: registry-cn-hangzhou.ack.aliyuncs.com/acs/agent-runtime:v0.0.2
@@ -129,12 +133,18 @@ spec:
           restartPolicy: Always
       containers:
         - name: openclaw
-          image: registry-cn-hangzhou.ack.aliyuncs.com/ack-demo/openclaw:2026.3.2         
+          image: registry.cn-hangzhou.aliyuncs.com/acs-samples/clawdbot:2026.1.24.3         
           imagePullPolicy: IfNotPresent
           securityContext:
-            readOnlyRootFilesystem: false
-            runAsUser: 0
-            runAsGroup: 0
+            runAsNonRoot: true #Pod 使用普通用户启动
+            privileged: false # 禁用特权配置
+            allowPrivilegeEscalation: false
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: false # 使用只读文件系统（按需） - openclaw 场景不需要，得能写
           resources:
             requests:
               cpu: 4
@@ -162,11 +172,39 @@ spec:
             postStart:
               exec:
                 command: [ "/bin/bash", "-c", "/mnt/envd/envd-run.sh" ]        
-      terminationGracePeriodSeconds: 1
+      terminationGracePeriodSeconds: 30  # 可以按照实际退出的速度来调整
       volumes:
         - emptyDir: { }
           name: envd-volume
 ```
+
+重要字段说明
+SandboxSet.spec.persistentContents:  filesystem #在pause，connect的过程中只保留文件系统（不保留ip、mem）
+template.spec.restartPolicy: Always
+template.spec.automountServiceAccountToken: false #Pod 不挂载 service account
+template.spec.enableServiceLinks: false #Pod 不注入 service 环境变量
+
+template.metadata.labels.alibabacloud.com/acs: "true"
+template.metadata.annotations.ops.alibabacloud.com/pause-enabled: "true" # 支持pause, connect 动作
+
+template.spec.initContainer #下载并copy envd 的环境 ， 保留即可
+template.spec.initContainers.restartPolicy: Always
+
+template.spec.containers.securityContext.runAsNonRoot: true  #Pod 使用普通用户启动
+template.spec.containers.securityContext.privileged: false # 禁用特权配置
+template.spec.containers.securityContext.allowPrivilegeEscalation: false
+template.spec.containers.securityContext.seccompProfile.type.RuntimeDefault 
+template.spec.containers.securityContext.capabilities.drop: [ALL]
+template.spec.containers.securityContext.readOnlyRootFilesystem: false
+
+如果预期使用Pause，一定不要设置liveness/rediness的探针，避免在暂停期间的健康检查问题
+必要的修改
+registry-cn-hangzhou.ack.aliyuncs.com/acs/agent-runtime   # 修改为所在地域的镜像，并且是内网镜像【目前，未来会自动注入】
+registry.cn-hangzhou.aliyuncs.com/acs-samples/clawdbot:2026.1.24.3 # 替换为客户自己构建的镜像
+机制的简要说明
+通过在pod启动envd，来支持e2b sdk的服务端接口
+
+
 通过kubectl 创建上述资源，SandboxSet创建完成后，可以看到1个沙箱已经处于可用状态：
 ![img_6.png](img_6.png)
 
@@ -208,3 +246,100 @@ sandbox default--openclaw-22j5l killed
 
 ```
 当预期返回中有沙箱Id时，可以认为E2B 服务已经正常运行了
+
+休眠唤醒测试代码
+```
+写入如下文件到 openclaw.py
+
+from dotenv import load_dotenv
+import os
+import time
+import requests
+from e2b_code_interpreter import Sandbox
+
+def main():
+    print("Hello from openclaw-demo!")
+    load_dotenv()
+
+    # 步骤1: 创建 sandbox
+    print("\n[步骤1] 创建 sandbox...")
+    start_time = time.monotonic()
+    sandbox = Sandbox.create(
+        'openclaw',
+        timeout=1800,
+        envs={
+            "DASHSCOPE_API_KEY": os.environ.get("DASHSCOPE_API_KEY", ""),
+            "GATEWAY_TOKEN": os.environ.get("GATEWAY_TOKEN", "clawdbot-mode-123456"),
+        },
+        metadata={
+            "e2b.agents.kruise.io/never-timeout": "true"
+        }
+    )
+    print(f"创建 sandbox 耗时: {time.monotonic() - start_time:.2f} 秒")
+    print(f"Sandbox ID: {sandbox.sandbox_id}")
+    sandbox.files.write("/tmp/test.txt", "Hello, World!")
+    
+    # 等待几秒让服务启动
+    print("等待 3 秒让 gateway 启动...")
+    time.sleep(3)
+
+    # 步骤3: 等待服务就绪
+    print("\n[步骤3] 等待服务就绪...")
+    host = sandbox.get_host(18789)
+    base_url = f"https://{host}"
+    print(f"base_url: {base_url}")
+    
+    start_time = time.monotonic()
+    ready = False
+    while True:
+        try:
+            response = requests.get(
+                f"{base_url}/?token=clawdbot-mode-123456",
+                verify=False,
+                timeout=5
+            )
+            print(f"响应状态码: {response.status_code}")
+            if response.status_code == 200:
+                print("服务已就绪!")
+                print(f"响应内容: {response.text[:200]}...")  # 打印前200字符
+                ready = True
+                break
+        except requests.ConnectionError as e:
+            print(f"连接错误: {e}")
+        except requests.Timeout:
+            print("请求超时，继续等待...")
+        time.sleep(0.5)
+        print("waiting...")
+    
+    print(f"等待就绪总耗时: {time.monotonic() - start_time:.2f} 秒")
+
+    # 步骤4: 暂停前等待用户确认
+    print("\n[步骤4] 服务已就绪，准备暂停 sandbox...")
+    input("按 Enter 键继续执行 pause 操作...")
+
+    # 步骤5: 暂停 sandbox
+    print("\n[步骤5] 执行 sandbox beta_pause...")
+    start_time = time.monotonic()
+    pause_success = sandbox.beta_pause()
+    print(f"pause 耗时: {time.monotonic() - start_time:.2f} 秒")
+    print(f"pause success: {pause_success}") # pause 的结果. None 是预期值，如果有其他错误信息回返回
+
+    # 步骤6: 重新连接 sandbox
+    
+    input("[步骤6] 准备重新连接 sandbox 按 Enter 键继续执行 connect 操作...")
+    # 等待 10秒让 sandbox 完全暂停
+    print("等待 60秒让 sandbox 完全暂停...")
+    time.sleep(60)
+    print("\n[步骤6] 重新连接 sandbox...")
+    start_time = time.monotonic()
+    sameSandbox = sandbox.connect(timeout=180)
+    connect_time = time.monotonic() - start_time
+    print(f"connect 耗时: {connect_time:.2f} 秒")
+    print(f"重新连接成功，Sandbox ID: {sameSandbox.sandbox_id}")
+
+    print("\n所有步骤执行完毕!")
+
+
+if __name__ == "__main__":
+    main()
+```
