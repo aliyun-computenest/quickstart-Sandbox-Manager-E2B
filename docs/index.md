@@ -66,10 +66,9 @@ Examples:
     
     1.  TLS 证书选择fullchain.pem文件
         
-    2.  TLS 证书私钥选择privkey.pem文件 
+    2.  TLS 证书私钥选择privkey.pem文件 ![image.png](test1-1.png)
         
     
-    ![image.png](test1-1.png)
     
 4.  会生成访问E2B API的 E2B\_API\_KEY
     
