@@ -200,8 +200,7 @@ spec:
 机制的简要说明 通过在pod启动envd，来支持e2b sdk的服务端接口
 
 通过kubectl 创建上述资源，SandboxSet创建完成后，可以看到1个沙箱已经处于可用状态： 
-
-![image.png](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/8oLl952z0kPRylap/img/1105d2f3-13a3-48e1-b12a-b4cdf057ec64.png)
+![img_9.png](img_9.png)
 
 # 服务部署验证
 
