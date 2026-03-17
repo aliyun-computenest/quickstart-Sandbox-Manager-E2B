@@ -88,9 +88,11 @@ def write_cert_files():
 
 
 def write_env_file():
-    """生成 .env 配置文件，E2B_API_KEY / E2B_DOMAIN 从环境变量读取"""
+    """生成 .env 配置文件，E2B_API_KEY / E2B_DOMAIN / E2B_API_URL 从环境变量读取"""
     e2b_api_key = os.environ.get("E2B_API_KEY", "")
     e2b_domain = os.environ.get("E2B_DOMAIN", "agent-vpc.infra")
+    # 默认使用 K8s Service DNS，集群内部可直接解析，无需写死 ClusterIP
+    e2b_api_url = os.environ.get("E2B_API_URL", "http://sandbox-manager.sandbox-system.svc.cluster.local:8080")
 
     env_content = f"""# E2B Environment Variables
 # 按照自己的实际情况修改变量
@@ -98,6 +100,8 @@ def write_env_file():
 E2B_DOMAIN={e2b_domain}
 # E2B API Key
 E2B_API_KEY={e2b_api_key}
+# E2B API URL（指向集群内 sandbox-manager，默认使用 K8s Service DNS）
+E2B_API_URL={e2b_api_url}
 # SSL Certificate File
 SSL_CERT_FILE=./ca-fullchain.pem
 # 访问网关的token
