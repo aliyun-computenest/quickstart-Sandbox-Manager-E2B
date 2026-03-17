@@ -83,18 +83,18 @@ Examples:
 
 ## OpenClaw沙箱定义说明
 
-计算巢默认 会通过以下 yaml 创建一个单副本的 OpenClaw SandboxSet预热池（相当于e2b的模版），后续如果自己构建了镜像，可以直接替换集群中的openclaw镜像。 若为了提升拉取速度，也可替换为内网镜像：registry-${RegionId}-vpc.ack.aliyuncs.com/ack-demo/openclaw:2026.3.2
+计算巢默认 会通过以下 yaml 创建一个单副本的 SandboxSet预热池（相当于e2b的模版），后续如果自己构建了镜像，可以直接替换集群中的containers的镜像。 若为了提升拉取速度，也可替换为内网镜像：registry-${RegionId}-vpc.ack.aliyuncs.com/acs/agent-runtime:v0.0.2
 
 ```yaml
-apiVersion: agents.kruise.io/v1alpha1
+aapiVersion: agents.kruise.io/v1alpha1
 kind: SandboxSet
 metadata:
-  name: openclaw
+  name: sandbox
   namespace: default
   annotations:
     e2b.agents.kruise.io/should-init-envd: "true"
   labels:
-    app: openclaw
+    app: sandbox
 spec:
   persistentContents: 
   - filesystem
@@ -103,7 +103,7 @@ spec:
     metadata:
       labels:        
         alibabacloud.com/acs: "true" # 使用ACS算力
-        app: openclaw
+        app: sandbox
       annotations:
         ops.alibabacloud.com/pause-enabled: "true" # 支持pause
     spec:
@@ -125,8 +125,8 @@ spec:
               value: "true"
           restartPolicy: Always
       containers:
-        - name: openclaw
-          image: registry-cn-hangzhou.ack.aliyuncs.com/ack-demo/openclaw:2026.3.2        
+        - name: sandbox
+          image: registry-cn-hangzhou.ack.aliyuncs.com/acs/agent-runtime:v0.0.2        
           imagePullPolicy: IfNotPresent
           securityContext:
             readOnlyRootFilesystem: false
@@ -142,16 +142,12 @@ spec:
           env:
             - name: ENVD_DIR
               value: /mnt/envd
-            - name: DASHSCOPE_API_KEY 
-              value: sk-xxxxxxxxxxxxxxxxx # 替换为您真实的API_KEY
-            - name: GATEWAY_TOKEN 
-              value: clawdbot-mode-123456 # 替换为您希望访问OpenClaw的token
           volumeMounts:
             - name: envd-volume
               mountPath: /mnt/envd            
           startupProbe:
             tcpSocket:
-              port: 18789
+              port: 49983
             initialDelaySeconds: 5
             periodSeconds: 5
             failureThreshold: 30
@@ -199,9 +195,7 @@ spec:
 如果预期使用Pause，一定不要设置liveness/rediness的探针，避免在暂停期间的健康检查问题 必要的修改
 
 *   registry-cn-hangzhou.ack.aliyuncs.com/acs/agent-runtime # 修改为所在地域的镜像，并且是内网镜像【目前，未来会自动注入】
-    
-*   registry-cn-hangzhou.ack.aliyuncs.com/ack-demo/openclaw:2026.3.2 # 替换为客户自己构建的镜像
-    
+     
 
 机制的简要说明 通过在pod启动envd，来支持e2b sdk的服务端接口
 
@@ -209,12 +203,20 @@ spec:
 
 ![image.png](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/8oLl952z0kPRylap/img/1105d2f3-13a3-48e1-b12a-b4cdf057ec64.png)
 
-## 服务部署验证
+# 服务部署验证
 
 部署完成后，会得到一个对应的ACS集群，ACS集群中在sandbox-system命名空间下有sandbox-manager的Deployment，用于管理沙箱。 通过以下流程验证E2B服务已经正常运行，并介绍沙箱使用Demo.
 
-### 配置域名的解析
+该部分分为自动化测试和手动测试可选其中一种测试步骤验证核心功能，两种测试方式验证的功能一致，均包含沙箱创建，休眠和重新连接部分。
 
+##  自动化测试
+1. 点击计算巢服务实例，找到实例内包含的acs的集群。![img_7.png](img_7.png)
+2. 点击集群容器组界面，找到acs-test-pod，点击终端登录![img_8.png](img_8.png)
+3. 执行 python test_sandbox.py 
+4. 等待脚本验证所有功能通过
+
+## 手动测试 (可选)
+### 配置域名的解析
 #### 本地配置Host: 用于快速验证
 
 1.  获取ALB的访问端点：ack-sandbox-manager 集群中使用Alb作为Ingress，在服务实例详情页，可以找到ACS控制台的链接，点击链接查看sandbox-manager的网关，可以获取ALB的访问端点，如下图所示 
@@ -244,7 +246,7 @@ curl --cacert fullchain.pem -X POST --location "https://api.agent-vpc.infra/sand
     -H "Content-Type: application/json" \
     -H "X-API-Key: admin-987654321" \
     -d '{
-          "templateID": "openclaw",
+          "templateID": "sandbox",
           "timeout": 300
         }'
 ```
@@ -257,7 +259,7 @@ curl --cacert fullchain.pem -X POST --location "https://api.agent-vpc.infra/sand
 from e2b_code_interpreter import Sandbox
 
 sbx = Sandbox.create(                
-    template="openclaw",    
+    template="sandbox",    
     request_timeout=60,
     metadata={
       "e2b.agents.kruise.io/never-timeout": "true"   #永不过期，不自动kill
@@ -270,93 +272,42 @@ print(f"Running in sandbox as \"{r.stdout.strip()}\"")
 ### 休眠唤醒测试代码
 
 ```yaml
-写入如下文件到 openclaw.py
+写入如下文件到 test_sandbox.py
 
-from dotenv import load_dotenv
-import os
 import time
-import requests
+from dotenv import load_dotenv
 from e2b_code_interpreter import Sandbox
 
+
 def main():
-    print("Hello from openclaw-demo!")
-    load_dotenv()
+    print("Hello from acs-sandbox-test!")
+    load_dotenv(override=True)
 
     # 步骤1: 创建 sandbox
     print("\n[步骤1] 创建 sandbox...")
     start_time = time.monotonic()
-    sandbox = Sandbox.create(
-        'openclaw',
-        timeout=1800,
-        envs={
-            "DASHSCOPE_API_KEY": os.environ.get("DASHSCOPE_API_KEY", ""),
-            "GATEWAY_TOKEN": os.environ.get("GATEWAY_TOKEN", "clawdbot-mode-123456"),
-        },
-        metadata={
-            "e2b.agents.kruise.io/never-timeout": "true"
-        }
-    )
+    sandbox = Sandbox.create('sandbox', timeout=1800)
     print(f"创建 sandbox 耗时: {time.monotonic() - start_time:.2f} 秒")
     print(f"Sandbox ID: {sandbox.sandbox_id}")
-    sandbox.files.write("/tmp/test.txt", "Hello, World!")
-    
-    # 等待几秒让服务启动
-    print("等待 3 秒让 gateway 启动...")
-    time.sleep(3)
+    print(f"envd host: {sandbox.get_host(49983)}")
 
-    # 步骤3: 等待服务就绪
-    print("\n[步骤3] 等待服务就绪...")
-    host = sandbox.get_host(18789)
-    base_url = f"https://{host}"
-    print(f"base_url: {base_url}")
-    
-    start_time = time.monotonic()
-    ready = False
-    while True:
-        try:
-            response = requests.get(
-                f"{base_url}/?token=clawdbot-mode-123456",
-                verify=False,
-                timeout=5
-            )
-            print(f"响应状态码: {response.status_code}")
-            if response.status_code == 200:
-                print("服务已就绪!")
-                print(f"响应内容: {response.text[:200]}...")  # 打印前200字符
-                ready = True
-                break
-        except requests.ConnectionError as e:
-            print(f"连接错误: {e}")
-        except requests.Timeout:
-            print("请求超时，继续等待...")
-        time.sleep(0.5)
-        print("waiting...")
-    
-    print(f"等待就绪总耗时: {time.monotonic() - start_time:.2f} 秒")
-
-    # 步骤4: 暂停前等待用户确认
-    print("\n[步骤4] 服务已就绪，准备暂停 sandbox...")
-    input("按 Enter 键继续执行 pause 操作...")
-
-    # 步骤5: 暂停 sandbox
-    print("\n[步骤5] 执行 sandbox beta_pause...")
+    # 步骤2: 暂停 sandbox
+    print("\n[步骤2] 执行 sandbox beta_pause...")
     start_time = time.monotonic()
     pause_success = sandbox.beta_pause()
     print(f"pause 耗时: {time.monotonic() - start_time:.2f} 秒")
-    print(f"pause success: {pause_success}") # pause 的结果. None 是预期值，如果有其他错误信息回返回
+    print(f"pause success: {pause_success}")
 
-    # 步骤6: 重新连接 sandbox
-    
-    input("[步骤6] 准备重新连接 sandbox 按 Enter 键继续执行 connect 操作...")
-    # 等待 10秒让 sandbox 完全暂停
-    print("等待 60秒让 sandbox 完全暂停...")
+    print("等待 60 秒让 sandbox 完全暂停...")
     time.sleep(60)
-    print("\n[步骤6] 重新连接 sandbox...")
+
+    # 步骤3: resume 并验证文件持久化
+    print("\n[步骤3] 重新连接 sandbox（resume）...")
     start_time = time.monotonic()
-    sameSandbox = sandbox.connect(timeout=180)
-    connect_time = time.monotonic() - start_time
-    print(f"connect 耗时: {connect_time:.2f} 秒")
-    print(f"重新连接成功，Sandbox ID: {sameSandbox.sandbox_id}")
+    same_sandbox = sandbox.connect(timeout=180)
+    print(f"connect 耗时: {time.monotonic() - start_time:.2f} 秒")
+    print(f"重新连接成功，Sandbox ID: {same_sandbox.sandbox_id}")
+
 
     print("\n所有步骤执行完毕!")
 
