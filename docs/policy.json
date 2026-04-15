@@ -98,6 +98,7 @@
                 "pvtz:DeleteZone",
                 "pvtz:DeleteZoneRecord",
                 "pvtz:DescribeZoneInfo",
+                "pvtz:DescribeZones",
                 "pvtz:DescribeZoneRecords",
                 "pvtz:ListTagResources",
                 "pvtz:SetProxyPattern",
