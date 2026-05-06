@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <meta name="description" content="计算巢是阿里云开放给企业应用服务商的服务管理平台。服务商能够在计算巢上发布私有化部署服务，为其客户提供云上软件一键部署的能力；同时也支持全托管模式的服务，赋能服务商托管其客户资源。">
+  <title>Use E2B to manage security sandbox in ACS cluster - Aliyun 计算巢 x Demo</title>
+
+  <link rel="shortcut icon" href="../img/favicon.ico">
+
+  <link rel="stylesheet" href="https://unpkg.com/purecss@1.0.0/build/pure-min.css">
+  <link rel="stylesheet" href="../css/theme.css">
+  
+
+  
+
+  
+  
+
+  
+    <script src="../search/main.js"></script>
+  
+
+  
+
+  <script src="../js/highlight.min.js"></script>
+  <script>hljs.highlightAll();</script>
+</head>
+
+<body>
+  <div class="container">
+    <div class="nav">
+      <div class="nav-inner">
+        <div class="logo">
+          <img src="./img/logo-2x.png">
+        </div>
+        <div class="nav-list">
+          <ul>
+          
+              <li><a href="#use-e2b-to-manage-security-sandbox-in-acs-cluster">Use E2B to manage security sandbox in ACS cluster</a></li>
+              
+                  <li><a href="#overview">Overview</a></li>
+                  
+              
+                  <li><a href="#pre-preparation">Pre-preparation</a></li>
+                  
+                      <li class="li-h3"><a href="#prepare-domain-name">Prepare Domain Name</a></li>
+                  
+                      <li class="li-h3"><a href="#obtaining-a-self-signed-certificate">Obtaining a Self-Signed Certificate</a></li>
+                  
+                      <li class="li-h3"><a href="#activate-service">Activate Service</a></li>
+                  
+                      <li class="li-h3"><a href="#authorize-ram-users">Authorize RAM users</a></li>
+                  
+              
+                  <li><a href="#deployment-process">Deployment process</a></li>
+                  
+              
+                  <li><a href="#openclaw-sandbox-definition-description">OpenClaw sandbox definition description</a></li>
+                  
+              
+          
+              <li><a href="#service-deployment-verification">Service deployment verification</a></li>
+              
+                  <li><a href="#automated-testing">Automated testing</a></li>
+                  
+              
+                  <li><a href="#manual-test-optional">Manual test (optional)</a></li>
+                  
+                      <li class="li-h3"><a href="#configure-domain-name-resolution">Configure Domain Name Resolution</a></li>
+                  
+                      <li class="li-h3"><a href="#create-a-sandbox-through-the-e2b-sdk">Create a sandbox through the e2b sdk</a></li>
+                  
+                      <li class="li-h3"><a href="#sleep-wake-test-code">Sleep Wake Test Code</a></li>
+                  
+              
+          
+              <li><a href="#step-2-pause-sandbox">Step 2: Pause sandbox</a></li>
+              
+          
+              <li><a href="#step-3-resume-and-verify-file-persistence">Step 3: resume and verify file persistence</a></li>
+              
+          
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="content theme-github">
+      
+      <div class="content-inner">        
+        
+        <h1 id="use-e2b-to-manage-security-sandbox-in-acs-cluster">Use E2B to manage security sandbox in ACS cluster</h1>
+<h2 id="overview">Overview</h2>
+<p>E2B is a popular open source security sandbox framework that provides a simple and easy-to-use Python and JavaScript SDK for users to create, query, execute code, and request ports on security sandboxes. The ack-sandbox-manager component is a backend application compatible with the E2B protocol, enabling users to build a sandbox infrastructure with performance comparable to that of native E2B in any K8s cluster.</p>
+<p>This service provides a solution for quickly building a security sandbox in an ACS cluster and supports interaction using the E2B protocol.</p>
+<h2 id="pre-preparation">Pre-preparation</h2>
+<p>The standard E2B protocol requires a domain name (E2B_DOMAIN) to specify the backend service. To do this, you need to prepare your own domain name. The E2B client must request the backend through the HTTPS protocol, so it also needs to apply for a wildcard certificate for the service.</p>
+<p>The following describes the steps for preparing domain names and certificates in the test scenario. The generated fullchain.pem and privkey.pem files will be used in the subsequent deployment phase.</p>
+<h3 id="prepare-domain-name">Prepare Domain Name</h3>
+<ul>
+<li>In the test scenario, to facilitate verification, you can use the test domain name, for example: agent-vpc.infra.</li>
+</ul>
+<h3 id="obtaining-a-self-signed-certificate">Obtaining a Self-Signed Certificate</h3>
+<p>The script <a href="https://github.com/openkruise/agents/blob/master/hack/generate-certificates.sh">generate-certificate.sh</a> creates a self-signed certificate. You can use the following command to view how the script is used.</p>
+<p>'''plaintext
+$bash generate-certificates.sh --help</p>
+<p>Usage: generate-certificates.sh [OPTIONS]</p>
+<p>Options:
+-d, --domain DOMAIN Specify certificate domain (default: your.domain.com)
+-o, --output DIR Specify output directory (default: .)
+-D, --days DAYS Specify certificate validity days (default: 365)
+-h, --help Show this help message</p>
+<p>Examples:
+generate-certificates.sh -d myapp.your.domain.com
+generate-certificates.sh --domain api.your.domain.com --days 730
+'''</p>
+<p>Example of a command to generate a certificate:</p>
+<p>'''plaintext
+./generate-certificates.sh --domain agent-vpc.infra --days 730
+'''</p>
+<p>After the certificate generation is complete, you will get the following file:</p>
+<ul>
+<li>
+<p>fullchain.pem: server certificate public key</p>
+</li>
+<li>
+<p>privkey.pem: Server certificate private key</p>
+</li>
+<li>
+<p>ca-fullchain.pem:CA certificate public key</p>
+</li>
+<li>
+<p>ca-privkey.pem:CA certificate private key This script generates both single domain name (your.domain) and wildcard domain name (*.your.domain) certificates, which is compatible with the native E2B protocol and OpenKruise custom E2B protocol.</p>
+</li>
+</ul>
+<h3 id="activate-service">Activate Service</h3>
+<p>If you have not used the relevant cloud service before, you will be prompted to activate the service and create the corresponding service role during deployment, as shown in the following figure,
+<img alt="img_17.png" src="images-en/img_17.png" />
+The permissions required in this step are relatively risky (the administrator permissions of the cloud product are required). We recommend that you use the following two methods to activate:
+Note: opening is a one-time operation, and only needs to be opened during the first operation.
+1. Contact a user with administrator rights to open the computing nest service deployment link, and let the administrator user open it according to the prompt.
+2. Contact a user with administrator permissions to temporarily grant administrator permissions to the RAM user. After the RAM user is authorized, it can be activated. The required permissions are as follows.
+Policy:<a href="https://github.com/aliyun-computenest/openclaw-acs-sandbox/blob/main/docs/open_policy.json">open_policy.json</a></p>
+<h3 id="authorize-ram-users">Authorize RAM users</h3>
+<p>If you are using a RAM user, you must authorize the RAM user to complete the deployment process. For more information, see <a href="https://help.aliyun.com/zh/compute-nest/security-and-compliance/grant-user-permissions-to-a-ram-user">Authorization Document</a>.</p>
+<p>The permission policies required to deploy this service include two system permission policies and one custom permission policy. Contact a user with administrator permissions to grant the following permissions to the RAM user:
+<strong>System Permission Policy:</strong>
+-AliyunComputeNestUserFullAccess: Manage user-side permissions for the compute nest service (ComputeNest),
+-AliyunROSFullAccess: Manage permissions for the Resource Orchestration Service (ROS).
+<strong>Custom permissions policy:</strong>
+-Permission policy:<a href="https://github.com/aliyun-computenest/quickstart-Sandbox-Manager-E2B/blob/main/docs/policy.json">policy.json</a></p>
+<h2 id="deployment-process">Deployment process</h2>
+<ol>
+<li>
+<p>Open the compute nest service <a href="https://computenest.console.aliyun.com/service/instance/create/cn-hangzhou?type=user&amp;ServiceId=service-47d7c54c78604e0bbe79">deployment link</a></p>
+</li>
+<li>
+<p>Fill in the relevant deployment parameters, select the deployment region, Service CIDR of the ACS cluster, and configure the VPC</p>
+</li>
+</ol>
+<p><img alt="image.png" src="../images-en/d6ba943d-0c83-42bd-a00c-2d0facd8396b_1778031214.png" /></p>
+<ol>
+<li>
+<p>Fill in the E2B domain name configuration. The E2B access domain name is configured as the domain name in the preparation stage of the above premise,</p>
+</li>
+<li>
+<p>TLS certificate selection fullchain.pem file</p>
+</li>
+<li>
+<p>TLS certificate private key selection privkey.pem file<img alt="image.png" src="../images-en/test1-1.png" /></p>
+</li>
+<li>
+<p>E2B_API_KEY will be generated to access E2B API</p>
+</li>
+<li>
+<p>sandbox-The default CPU and memory configuration of manager components defaults to 2C and 4Gi, which can be adjusted as needed</p>
+</li>
+<li>
+<p>After the configuration is completed, click Confirm Order</p>
+</li>
+<li>
+<p>After the deployment is successful, you can also view E2B_API_KEY, E2B_DOMAIN and other information on the details page of the service instance.</p>
+</li>
+</ol>
+<p><img alt="image.png" src="../images-en/0d7faeee-7052-4226-a2ca-38f8f3606dcc_1778031214.png" /></p>
+<h2 id="openclaw-sandbox-definition-description">OpenClaw sandbox definition description</h2>
+<p>By default, the computing nest uses the following yaml to create a single-copy SandboxSet preheating pool (equivalent to an e2b template). If you build a mirror later, you can directly replace the containers mirror in the cluster. In order to improve the pulling speed, it can also be replaced with an intranet mirror: registry-${RegionId}</p>
+<p>yaml
+aapiVersion: agents.kruise.io/v1alpha1
+kind: SandboxSet
+metadata:
+name: sandbox
+namespace: default
+annotations:
+e2b.agents.kruise.io/should-init-envd: "true"
+labels:
+app: sandbox
+spec:
+persistentContents:
+-filesystem
+replicas: 1
+template:
+metadata:
+labels:
+alibabacloud.com/acs: "true"# Use ACS computing power
+app: sandbox
+annotations:
+"true"# supports pause
+spec:
+restartPolicy: Always
+automountServiceAccountToken: false #Pod does not mount service account
+enableServiceLinks: false #Pod does not inject service environment variables
+initContainers:
+-name: init
+image: registry-cn-hangzhou.ack.aliyuncs.com/acs/agent-runtime:v0.0.2
+imagePullPolicy: IfNotPresent
+command: [ "sh", "/workspace/entrypoint_inner.sh"]
+volumeMounts:
+-name: envd-volume
+mountPath: /mnt/envd
+env:
+-name: ENVD_DIR
+value: /mnt/envd
+-name: __IGNORE_RESOURCE __
+value: "true"
+restartPolicy: Always
+containers:
+-name: sandbox
+image: registry-cn-hangzhou.ack.aliyuncs.com/acs/agent-runtime:v0.0.2
+imagePullPolicy: IfNotPresent
+securityContext:
+readOnlyRootFilesystem: false
+runAsGroup: 0
+runAsUser: 0
+resources:
+requests:
+cpu: 2
+memory: 4Gi
+limits:
+cpu: 2
+memory: 4Gi
+env:
+-name: ENVD_DIR
+value: /mnt/envd
+volumeMounts:
+-name: envd-volume
+mountPath: /mnt/envd
+startupProbe:
+tcpSocket:
+port: 49983
+initialDelaySeconds: 5
+periodSeconds: 5
+failureThreshold: 30
+lifecycle:
+postStart:
+exec:
+command: [ "/bin/bash", "-c", "/mnt/envd/envd-run.sh"]
+terminationGracePeriodSeconds: 30# can be adjusted according to the actual exit speed
+volumes:
+-emptyDir: {}
+name: envd-volume
+'''</p>
+<p><strong>Important Field Description</strong></p>
+<ul>
+<li>
+<p>SandboxSet.spec.persistentContents: filesystem# Only the file system is retained during pause and connect (ip and mem are not retained)</p>
+</li>
+<li>
+<p>template.spec.restartPolicy: Always</p>
+</li>
+<li>
+<p>template.spec.automountServiceAccountToken: false #Pod does not mount service account</p>
+</li>
+<li>
+<p>template.spec.enableServiceLinks: false #Pod does not inject service environment variables</p>
+</li>
+<li>
+<p>template.metadata.labels.alibabacloud.com/acs: "true"</p>
+</li>
+<li>
+<p>"true"# Support pause, connect action</p>
+</li>
+<li>
+<p>template.spec.initContainer# download and copy envd environment, and keep it</p>
+</li>
+<li>
+<p>template.spec.initContainers.restartPolicy: Always</p>
+</li>
+<li>
+<p>template.spec.containers.securityContext.runAsNonRoot: true #Pod started with normal user</p>
+</li>
+<li>
+<p>template.spec.containers.securityContext.privileged: false# Disable privilege configuration</p>
+</li>
+<li>
+<p>template.spec.containers.securityContext.allowPrivilegeEscalation: false</p>
+</li>
+<li>
+<p>template.spec.containers.securityContext.seccompProfile.type.RuntimeDefault</p>
+</li>
+<li>
+<p>template.spec.containers.securityContext.capabilities.drop: [ALL]</p>
+</li>
+<li>
+<p>template.spec.containers.securityContext.readOnlyRootFilesystem: false</p>
+</li>
+</ul>
+<p>If you expect to use Pause, be sure not to set up liveness/rediness probes to avoid necessary modifications to health check issues during the pause.</p>
+<ul>
+<li>Modify the mirror image of the region where it is located, and it is an intranet mirror image [currently, it will be automatically injected in the future]]</li>
+</ul>
+<p>the brief description of the mechanism supports the server interface of the e2b sdk by starting the envd in the pod.</p>
+<p>Create the preceding resource by kubectl. After the SandboxSet is created, you can see that one sandbox is available:
+<img alt="img_9.png" src="../images-en/img_9.png" /></p>
+<h1 id="service-deployment-verification">Service deployment verification</h1>
+<p>After the deployment is complete, an ACS cluster is created. In the ACS cluster, there is a sandbox-manager Deployment under the sandbox-system namespace to manage the sandbox. Use the following procedure to verify that the E2B service is running normally, and introduce the use of the demo in the sandbox.</p>
+<p>This part is divided into automated testing and manual testing. One of the test steps can be selected to verify the core functions. The two test methods verify the same functions and both include sandbox creation, hibernation and reconnection.</p>
+<h2 id="automated-testing">Automated testing</h2>
+<ol>
+<li>Click the computing nest service instance to find the acs cluster contained in the instance.<img alt="img_7.png" src="../images-en/img_7.png" /></li>
+<li>Click the cluster container group interface, find the acs-test-pod, and click the terminal login<img alt="img_8.png" src="../images-en/img_8.png" /></li>
+<li>Execute python test_sandbox.py</li>
+<li>Wait for the script to verify that all features pass.</li>
+</ol>
+<h2 id="manual-test-optional">Manual test (optional)</h2>
+<h3 id="configure-domain-name-resolution">Configure Domain Name Resolution</h3>
+<h4 id="local-configuration-host-for-quick-verification">Local Configuration Host: For Quick Verification</h4>
+<ol>
+<li>Obtain the access endpoint of ALB: Alb is used as the Ingress in the ack-sandbox-manager cluster. On the service instance details page, you can find the link to the ACS console. Click the link to view the gateway of sandbox-manager to obtain the access endpoint of ALB, as shown in the following figure</li>
+</ol>
+<p><img alt="image.png" src="../images-en/4f88eb0b-3b84-40f8-ba24-cbb4d4cce3f8_1778031214.png" /></p>
+<ol>
+<li>
+<p>Obtain the public network address corresponding to the Alb endpoint: locally obtain the public network Ip'ping alb-xxxxxx by ping the access endpoint of ALB'</p>
+</li>
+<li>
+<p>Configure the public network address and domain name of ALB to the local host:'echo "ALB_PUBLIC_IP api.E2B_DOMAIN" &gt;&gt; /etc/hosts' Example: 'xx.xxx.xx.xxx api.agent-vpc.infra'</p>
+</li>
+<li>
+<p>After Host is configured, E2B sandbox can be managed locally without DNS resolution. For specific usage, please refer to the chapter "Using Sandbox demo.</p>
+</li>
+</ol>
+<h4 id="configuring-dns-resolution-for-production-environments">Configuring DNS Resolution: For Production Environments</h4>
+<ol>
+<li>
+<p>Obtain the access endpoint of ALB: Alb is used as the Ingress in the ack-sandbox-manager cluster. On the service instance details page, you can go to the link of ACS console and click the link to view the gateway of sandbox-manager to obtain the access endpoint of ALB, as shown in the following figure<img alt="image.png" src="../images-en/b0eb2ac7-2991-4a7b-8d0e-75d1cd0b430f_1778031214.png" /></p>
+</li>
+<li>
+<p>Configure DNS resolution: Please resolve Alb's access endpoint to the corresponding domain name in CNAME record type,<img alt="image.png" src="../images-en/fb0b5101-90ba-4791-a769-9b7065b4851c_1778031214.png" /></p>
+</li>
+<li>
+<p>If you need to access through the intranet, you can add an intranet domain name for E2B through PrivateZone. (If you select New VPC during deployment, the PrivateZone has been automatically configured for you, and only resolution records need to be added later.) [Optional]]</p>
+</li>
+</ol>
+<p>Replace xxxx with the domain name you specified earlier, and the return value 2xx indicates that the e2b service is running. if it is a self-issued certificate, you need to specify the ca-fullchain.pem. Or use your local certificate by configuring environment variables [this action is to create sandbox] e2b can use "admin-987654321"-&gt; the actual key</p>
+<p>yaml
+curl --cacert fullchain.pem -X POST --location "https://api.agent-vpc.infra/sandboxes "\
+-H "Content-Type: application/json "\
+-H "X-API-Key: admin-987654321 "\
+-d '{
+"templateID": "sandbox ",
+"timeout": 300
+}'
+'''</p>
+<p>If there are "sandboxID" and "state":"running" in the json of the returned result, the e2b service can be considered to have run.</p>
+<h3 id="create-a-sandbox-through-the-e2b-sdk">Create a sandbox through the e2b sdk</h3>
+<p>python
+from e2b_code_interpreter import Sandbox</p>
+<p>sbx = Sandbox.create (
+template="sandbox ",
+request_timeout = 60,
+metadata= {
+"e2b.agents.kruise.io/never-timeout": "true"# never expires, does not kill automatically
+}
+)
+r = sbx.commands.run("whoami")
+print(f"Running in sandbox as \"{r.stdout.strip()}\"")
+'''</p>
+<h3 id="sleep-wake-test-code">Sleep Wake Test Code</h3>
+<p>yaml
+Write the following file to test_sandbox.py</p>
+<p>import time
+from dotenv import load_dotenv
+from e2b_code_interpreter import Sandbox</p>
+<p>def main():
+print("Hello from acs-sandbox-test! ")
+load_dotenv(override=True)</p>
+<p>Step 1: Create the sandbox
+print("\n [Step 1] Create sandbox...")
+start_time = time.monotonic()
+sandbox = Sandbox.create('sandbox', timeout=1800)
+print(f "sandbox creation time: {time.monotonic() - start_time:.2f} seconds")
+print(f"Sandbox ID: {sandbox.sandbox_id}")
+print(f"envd host: {sandbox.get_host(49983)}")</p>
+<h1 id="step-2-pause-sandbox">Step 2: Pause sandbox</h1>
+<p>print("\n [Step 2] Perform sandbox beta_pause...")
+start_time = time.monotonic()
+pause_success = sandbox.beta_pause()
+print(f "pause: {time.monotonic() - start_time:.2f} seconds")
+print(f"pause success: {pause_success}")</p>
+<p>print("Wait 60 seconds for the sandbox to pause completely...")
+time.sleep(60)</p>
+<h1 id="step-3-resume-and-verify-file-persistence">Step 3: resume and verify file persistence</h1>
+<p>print("\n [Step 3] Reconnect sandbox(resume)...")
+start_time = time.monotonic()
+same_sandbox = sandbox.connect(timeout=180)
+print(f "connect time: {time.monotonic() - start_time:.2f} seconds")
+print(f "Reconnect succeeded. Sandbox ID: {same_sandbox.sandbox_id}")</p>
+<p>print("\nAll steps completed! ")</p>
+<p>if <strong>name</strong> == "<strong>main </strong>":
+main()
+'''</p>
+        
+      </div>
+
+      <div class="copyrights">© 2009-2022 Aliyun.com 版权所有</div>
+    </div>
+  </div>
+  
+  <!--
+  MkDocs version      : 1.6.1
+  Docs Build Date UTC : 2026-05-06 01:35:40.401868+00:00
+  -->
+</body>
+</html>
