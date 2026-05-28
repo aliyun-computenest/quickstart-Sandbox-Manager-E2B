@@ -232,8 +232,9 @@ This part is divided into automated testing and manual testing. One of the test 
 ## Automated testing
 1. Click the computing nest service instance to find the acs cluster contained in the instance.![img_7.png](images-en/img_7.png)
 2. Click the cluster container group interface, find the acs-test-pod, and click the terminal login![img_8.png](images-en/img_8.png)
-3. Execute python test_sandbox.py
+3. Execute `python test_code.py`. This sample code verifies sandbox creation, hibernation, and reconnection features.
 4. Wait for the script to verify that all features pass.
+5. The sample also provides test_browser.py and test_desktop.py two samples, respectively verifying the browser and desktop functions
 
 ## Manual test (optional)
 ### Configure Domain Name Resolution

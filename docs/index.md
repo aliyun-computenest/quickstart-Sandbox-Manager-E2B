@@ -232,8 +232,9 @@ spec:
 ##  自动化测试
 1. 点击计算巢服务实例，找到实例内包含的acs的集群。![img_7.png](img_7.png)
 2. 点击集群容器组界面，找到acs-test-pod，点击终端登录![img_8.png](img_8.png)
-3. 执行 python test_sandbox.py 
+3. 执行 python test_code.py，该样例代码验证了沙箱创建、代码运行、脚本运行、文件读写功能
 4. 等待脚本验证所有功能通过
+5. 样例中还提供了test_browser.py和test_desktop.py两个样例，分别验证了浏览器和桌面功能
 
 ## 手动测试 (可选)
 ### 配置域名的解析
