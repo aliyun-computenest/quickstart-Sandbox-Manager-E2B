@@ -128,14 +128,9 @@
         },
         {
             "Action": [
-                "rds:DescribeDBInstances"
-            ],
-            "Effect": "Allow",
-            "Resource": "*"
-        },
-        {
-            "Action": [
-                "slb:DescribeLoadBalancers"
+                "oos:CreateApplicationConnection",
+                "oos:DeleteApplicationConnection",
+                "oos:UpdateApplicationConnection"
             ],
             "Effect": "Allow",
             "Resource": "*"
