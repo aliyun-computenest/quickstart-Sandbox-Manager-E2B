@@ -1,338 +1,293 @@
-# Use E2B to manage security sandbox in ACS cluster
+# Deploy Agent Sandbox with Alibaba Cloud ComputeNest
 
-## Overview
+This guide shows you how to deploy an E2B-compatible Agent Sandbox service with Alibaba Cloud ComputeNest. You can create an Alibaba Cloud Container Compute Service (ACS) cluster, create a Container Service for Kubernetes (ACK) cluster, or install Agent Sandbox components in an existing ACK cluster. After deployment, use the E2B SDK to create, run, pause, and reconnect to sandboxes.
 
-E2B is a popular open source security sandbox framework that provides a simple and easy-to-use Python and JavaScript SDK for users to create, query, execute code, and request ports on security sandboxes. The ack-sandbox-manager component is a backend application compatible with the E2B protocol, enabling users to build a sandbox infrastructure with performance comparable to that of native E2B in any K8s cluster.
+## Quick start
 
-This service provides a solution for quickly building a security sandbox in an ACS cluster and supports interaction using the E2B protocol.
+Complete these steps to obtain a Sandbox API endpoint and access key for the E2B SDK.
 
-## Pre-preparation
+1. Open the [Alibaba Cloud China deployment page](https://computenest.console.aliyun.com/service/instance/create/cn-hangzhou?type=user&ServiceId=service-47d7c54c78604e0bbe79) or the [Alibaba Cloud International deployment page](https://computenest.console.alibabacloud.com/service/instance/create/ap-southeast-1?type=user&ServiceId=service-7c3a2fa4dd3e46519c59), depending on your account.
+2. Select **ACS 部署** (ACS), **ACK 部署** (new ACK), or **Existing ACK Deployment**.
+3. Configure the network, Sandbox domain, TLS certificate, and API key.
+4. Review the cost and create the service instance.
+5. Wait until the instance status is **Deployed**, then copy `E2B_DOMAIN` and `E2B_API_KEY` from the instance details. New ACS/ACK deployments also output `ALB_DNS_Name`.
+6. Configure DNS, then run the [automated verification](#automated-verification) or [local API verification](#local-api-verification).
 
-The standard E2B protocol requires a domain name (E2B\_DOMAIN) to specify the backend service. To do this, you need to prepare your own domain name. The E2B client must request the backend through the HTTPS protocol, so it also needs to apply for a wildcard certificate for the service.
+## Choose a deployment mode
 
-The following describes the steps for preparing domain names and certificates in the test scenario. The generated fullchain.pem and privkey.pem files will be used in the subsequent deployment phase.
+All three modes expose the same E2B-compatible API, but they differ in cluster ownership and prerequisites.
 
-### Prepare Domain Name
+| Deployment mode | Use when | Main resources created by ComputeNest | Prepare in advance |
+| --- | --- | --- | --- |
+| `ACS 部署` (ACS) | You want serverless container capacity without managing worker nodes | ACS cluster, network, ALB, and Agent Sandbox components | Domain and TLS certificate |
+| `ACK 部署` (new ACK) | You need full Kubernetes worker nodes and cluster configuration | ACK cluster, worker nodes, network, ALB, and Agent Sandbox components | Domain and TLS certificate |
+| `Existing ACK Deployment` | You want to reuse an ACK cluster and VPC | Agent Sandbox components and test pod; installs ALB Ingress Controller and `ack-virtual-node` when absent | Working ACK cluster, VSwitches in two zones, domain, and TLS certificate |
 
-* In the test scenario, to facilitate verification, you can use the test domain name, for example: agent-vpc.infra.
+Choose **ACS 部署** unless you need an existing cluster or node-level configuration. Choose **ACK 部署** for workloads that depend on worker-node settings. Choose **Existing ACK Deployment** only after you verify the target cluster add-ons and networking.
 
+## Before you begin
 
-### Obtaining a Self-Signed Certificate
+Prepare account permissions, a domain, and a certificate before deployment. Existing ACK deployments also require add-on checks on the target cluster.
 
-The script [generate-certificate.sh](https://github.com/openkruise/agents/blob/master/hack/generate-certificates.sh) creates a self-signed certificate. You can use the following command to view how the script is used.
+### Activate cloud services
 
-'''plaintext
-$bash generate-certificates.sh --help
+On the first deployment, ComputeNest prompts you to activate dependent cloud services and create service-linked roles. This operation usually requires cloud-product administrator permissions and only needs to be completed once per account.
 
-Usage: generate-certificates.sh [OPTIONS]
+![ComputeNest deployment page listing cloud services and service-linked roles to activate](img_17.png)
 
-Options:
--d, --domain DOMAIN Specify certificate domain (default: your.domain.com)
--o, --output DIR Specify output directory (default: .)
--D, --days DAYS Specify certificate validity days (default: 365)
--h, --help Show this help message
+Use either of these methods:
 
-Examples:
-generate-certificates.sh -d myapp.your.domain.com
-generate-certificates.sh --domain api.your.domain.com --days 730
-'''
+- Ask an administrator to open the deployment page and complete the activation prompts.
+- Temporarily grant activation permissions to the RAM user that performs the deployment, then remove the elevated permissions.
 
-Example of a command to generate a certificate:
+If you need a custom policy, review the [first-time service activation policy](open_policy.json).
 
-'''plaintext
-./generate-certificates.sh --domain agent-vpc.infra --days 730
-'''
+### Grant permissions to a RAM user
 
-After the certificate generation is complete, you will get the following file:
+A Resource Access Management (RAM) user must have these policies:
 
-* fullchain.pem: server certificate public key
+- `AliyunComputeNestUserFullAccess` to manage user-side ComputeNest resources.
+- `AliyunROSFullAccess` to manage Resource Orchestration Service (ROS) resources.
+- The [Agent Sandbox custom policy](policy.json) to manage other resources used by the templates.
 
-* privkey.pem: Server certificate private key
+An administrator can follow [Grant permissions to a RAM user](https://help.aliyun.com/zh/compute-nest/security-and-compliance/grant-user-permissions-to-a-ram-user). Apply least privilege to production accounts.
 
-* ca-fullchain.pem:CA certificate public key
+### Prepare a domain and TLS certificate
 
-* ca-privkey.pem:CA certificate private key This script generates both single domain name (your.domain) and wildcard domain name (\*.your.domain) certificates, which is compatible with the native E2B protocol and OpenKruise custom E2B protocol.
+E2B clients access the Sandbox API over HTTPS. Use a dedicated subdomain such as `sandbox.example.com`; don't use an existing business domain or its public parent domain.
 
-### Activate Service
-If you have not used the relevant cloud service before, you will be prompted to activate the service and create the corresponding service role during deployment, as shown in the following figure,
-![img_17.png](images-en/img_17.png)
-The permissions required in this step are relatively risky (the administrator permissions of the cloud product are required). We recommend that you use the following two methods to activate:
-Note: opening is a one-time operation, and only needs to be opened during the first operation.
-1. Contact a user with administrator rights to open the computing nest service deployment link, and let the administrator user open it according to the prompt.
-2. Contact a user with administrator permissions to temporarily grant administrator permissions to the RAM user. After the RAM user is authorized, it can be activated. The required permissions are as follows.
-Policy:[open_policy.json](https://github.com/aliyun-computenest/openclaw-acs-sandbox/blob/main/docs/open_policy.json)
+The certificate must cover both names:
 
+- `sandbox.example.com`
+- `*.sandbox.example.com`
 
-### Authorize RAM users
+Use a publicly trusted certificate in production. For testing only, use the [OpenKruise certificate generation script](https://github.com/openkruise/agents/blob/master/hack/generate-certificates.sh) to create a self-signed certificate:
 
-If you are using a RAM user, you must authorize the RAM user to complete the deployment process. For more information, see [Authorization Document](https://help.aliyun.com/zh/compute-nest/security-and-compliance/grant-user-permissions-to-a-ram-user).
+```bash
+curl -O https://raw.githubusercontent.com/openkruise/agents/master/hack/generate-certificates.sh
+chmod +x generate-certificates.sh
+./generate-certificates.sh --domain sandbox.example.com --days 365
+```
 
-The permission policies required to deploy this service include two system permission policies and one custom permission policy. Contact a user with administrator permissions to grant the following permissions to the RAM user:
-**System Permission Policy:**
--AliyunComputeNestUserFullAccess: Manage user-side permissions for the compute nest service (ComputeNest),
--AliyunROSFullAccess: Manage permissions for the Resource Orchestration Service (ROS).
-**Custom permissions policy:**
--Permission policy:[policy.json](https://github.com/aliyun-computenest/quickstart-Sandbox-Manager-E2B/blob/main/docs/policy.json)
+The deployment uses these files:
 
+- `fullchain.pem`: Upload this file under **TLS Certificate**.
+- `privkey.pem`: Upload this file under **TLS Private Key**.
+- `ca-fullchain.pem`: Configure this file as the client trust chain for local tests with a self-signed certificate.
 
-## Deployment process
+The private key is sensitive. Don't commit `privkey.pem` or paste it into chat messages or tickets.
 
-1. Open the compute nest service [deployment link](https://computenest.console.aliyun.com/service/instance/create/cn-hangzhou?type=user&ServiceId=service-47d7c54c78604e0bbe79)
+### Check an existing ACK cluster
 
-2. Fill in the relevant deployment parameters, select the deployment region, Service CIDR of the ACS cluster, and configure the VPC
+Before selecting **Existing ACK Deployment**, open **Operations > Add-ons** for the target cluster in the ACK console and check these add-ons:
 
-![image.png](images-en/d6ba943d-0c83-42bd-a00c-2d0facd8396b_1778031214.png)
+- `alb-ingress-controller`: It can be absent or installed with a working configuration. The template installs it and creates a default `AlbConfig` when absent. It preserves the existing add-on and configuration when present.
+- `ack-virtual-node`: It can be absent or at version `v2.17.0` or later. The template installs it when absent. You must manually upgrade an installed version older than `v2.17.0`.
 
-3. Fill in the E2B domain name configuration. The E2B access domain name is configured as the domain name in the preparation stage of the above premise,
+The target VPC must also have one ALB VSwitch in each of two different zones.
 
-1. TLS certificate selection fullchain.pem file
+## Create the service instance
 
-2. TLS certificate private key selection privkey.pem file![image.png](images-en/test1-1.png)
+ComputeNest displays parameters for the selected deployment mode. The following settings apply to both Alibaba Cloud China and Alibaba Cloud International.
 
+### 1. Open the deployment page
 
+Open the page for your account site:
 
-4. E2B\_API\_KEY will be generated to access E2B API
+- [Alibaba Cloud China Agent Sandbox deployment](https://computenest.console.aliyun.com/service/instance/create/cn-hangzhou?type=user&ServiceId=service-47d7c54c78604e0bbe79)
+- [Alibaba Cloud International Agent Sandbox deployment](https://computenest.console.alibabacloud.com/service/instance/create/ap-southeast-1?type=user&ServiceId=service-7c3a2fa4dd3e46519c59)
 
-5. sandbox-The default CPU and memory configuration of manager components defaults to 2C and 4Gi, which can be adjusted as needed
+Select the target region and deployment mode at the top of the page.
 
-6. After the configuration is completed, click Confirm Order
+### 2. Configure the cluster and network
 
-7. After the deployment is successful, you can also view E2B\_API\_KEY, E2B\_DOMAIN and other information on the details page of the service instance.
+For **ACS 部署** or **ACK 部署**, create a VPC or select an existing VPC. When you create a cluster, make sure the VPC CIDR, VSwitch CIDRs, and Kubernetes Service CIDR don't overlap.
 
+For **Existing ACK Deployment**, complete these steps:
 
-![image.png](images-en/0d7faeee-7052-4226-a2ca-38f8f3606dcc_1778031214.png)
-
-## OpenClaw sandbox definition description
-
-By default, the computing nest uses the following yaml to create a single-copy SandboxSet preheating pool (equivalent to an e2b template). If you build a mirror later, you can directly replace the containers mirror in the cluster. In order to improve the pulling speed, it can also be replaced with an intranet mirror: registry-${RegionId}
-
-yaml
-aapiVersion: agents.kruise.io/v1alpha1
-kind: SandboxSet
-metadata:
-name: sandbox
-namespace: default
-annotations:
-e2b.agents.kruise.io/should-init-envd: "true"
-labels:
-app: sandbox
-spec:
-persistentContents:
--filesystem
-replicas: 1
-template:
-metadata:
-labels:
-alibabacloud.com/acs: "true"# Use ACS computing power
-app: sandbox
-annotations:
-"true"# supports pause
-spec:
-restartPolicy: Always
-automountServiceAccountToken: false #Pod does not mount service account
-enableServiceLinks: false #Pod does not inject service environment variables
-initContainers:
--name: init
-image: registry-cn-hangzhou.ack.aliyuncs.com/acs/agent-runtime:v0.0.2
-imagePullPolicy: IfNotPresent
-command: [ "sh", "/workspace/entrypoint_inner.sh"]
-volumeMounts:
--name: envd-volume
-mountPath: /mnt/envd
-env:
--name: ENVD_DIR
-value: /mnt/envd
--name: __IGNORE_RESOURCE __
-value: "true"
-restartPolicy: Always
-containers:
--name: sandbox
-image: registry-cn-hangzhou.ack.aliyuncs.com/acs/agent-runtime:v0.0.2
-imagePullPolicy: IfNotPresent
-securityContext:
-readOnlyRootFilesystem: false
-runAsGroup: 0
-runAsUser: 0
-resources:
-requests:
-cpu: 2
-memory: 4Gi
-limits:
-cpu: 2
-memory: 4Gi
-env:
--name: ENVD_DIR
-value: /mnt/envd
-volumeMounts:
--name: envd-volume
-mountPath: /mnt/envd
-startupProbe:
-tcpSocket:
-port: 49983
-initialDelaySeconds: 5
-periodSeconds: 5
-failureThreshold: 30
-lifecycle:
-postStart:
-exec:
-command: [ "/bin/bash", "-c", "/mnt/envd/envd-run.sh"]
-terminationGracePeriodSeconds: 30# can be adjusted according to the actual exit speed
-volumes:
--emptyDir: {}
-name: envd-volume
-'''
+1. Select the target `ClusterId`.
+2. Confirm that the automatically associated VPC is correct.
+3. Select the ALB network type: `Internet` for a public ALB or `Intranet` for a private ALB.
+4. Select two different zones and a VSwitch in the same VPC for each zone.
 
-**Important Field Description**
+The ALB network type takes effect only when the template needs to install `alb-ingress-controller`. The template doesn't overwrite an existing installation.
 
-* SandboxSet.spec.persistentContents: filesystem# Only the file system is retained during pause and connect (ip and mem are not retained)
+### 3. Configure Sandbox settings
 
-* template.spec.restartPolicy: Always
+Enter these Sandbox settings:
 
-* template.spec.automountServiceAccountToken: false #Pod does not mount service account
+| Setting | Purpose | Recommendation |
+| --- | --- | --- |
+| **Sandbox Domain** | Base domain used by E2B clients | Use a dedicated subdomain such as `sandbox.example.com` |
+| **TLS Certificate** | PEM-encoded server certificate chain | Upload `fullchain.pem` |
+| **TLS Private Key** | Private key matching the certificate | Upload `privkey.pem` |
+| **Sandbox API Key** | Access key for Sandbox API requests | Keep the generated value or enter a separate strong key |
+| **Sandbox Manager CPU** | CPU cores allocated to the manager | Default: `2`; adjust for concurrency |
+| **Sandbox Manager Memory** | Memory allocated to the manager | Default: `4Gi`; adjust for concurrency |
 
-* template.spec.enableServiceLinks: false #Pod does not inject service environment variables
+![Domain, TLS certificate, and private key fields on the ComputeNest deployment page](images-en/test1-1.png)
 
-* template.metadata.labels.alibabacloud.com/acs: "true"
+### 4. Create and wait for the deployment
 
-* "true"# Support pause, connect action
+Review the price and resource configuration, then select **Confirm Order**. In the ComputeNest console, wait until the service instance status changes to **Deployed**.
 
-* template.spec.initContainer# download and copy envd environment, and keep it
+Copy these outputs from the instance details:
 
-* template.spec.initContainers.restartPolicy: Always
+| Output | Deployment modes | Purpose |
+| --- | --- | --- |
+| `E2B_DOMAIN` | All | Base domain for the E2B SDK |
+| `E2B_API_KEY` | All | Sandbox API access key; the console treats it as a sensitive value |
+| `ALB_DNS_Name` | New ACS/ACK | CNAME target for public or private DNS |
+| `ClusterId` | All | Cluster identifier for the ACS or ACK console |
+| Follow-up steps | Existing ACK | Configure the Ingress HTTPS listener and DNS |
 
-* template.spec.containers.securityContext.runAsNonRoot: true #Pod started with normal user
+## Configure DNS
 
-* template.spec.containers.securityContext.privileged: false# Disable privilege configuration
+After deployment, resolve the API hostname and wildcard hostname to the ALB endpoint. New ACS/ACK deployments provide this endpoint as `ALB_DNS_Name`. For an existing ACK deployment, first follow the service-instance outputs to configure the Ingress HTTPS listener, then obtain the ALB endpoint from the ACK console. Use DNS CNAME records in production. Use a local hosts file only for short tests.
 
-* template.spec.containers.securityContext.allowPrivilegeEscalation: false
+### Production DNS
 
-* template.spec.containers.securityContext.seccompProfile.type.RuntimeDefault
+Create at least these records, replacing `sandbox.example.com` with the domain entered during deployment:
 
-* template.spec.containers.securityContext.capabilities.drop: \[ALL\]
+| Hostname | Record type | Value |
+| --- | --- | --- |
+| `api.sandbox.example.com` | CNAME | `ALB_DNS_Name` from the service instance |
+| `*.sandbox.example.com` | CNAME | `ALB_DNS_Name` from the service instance |
 
-* template.spec.containers.securityContext.readOnlyRootFilesystem: false
+For VPC-only access, create the same records in PrivateZone and associate the VPC that contains the target ACS or ACK cluster. PrivateZone authoritative resolution can affect other records under the same suffix, so use a dedicated subdomain.
 
+For an existing ACK deployment, also follow the service-instance outputs to confirm that the Ingress HTTPS listener and certificate configuration are active.
 
-If you expect to use Pause, be sure not to set up liveness/rediness probes to avoid necessary modifications to health check issues during the pause.
+### Local hosts-file test
 
-* Modify the mirror image of the region where it is located, and it is an intranet mirror image [currently, it will be automatically injected in the future]]
+A hosts file is suitable only for temporary testing and can't express a wildcard record. Resolve the ALB hostname, then add each hostname that you need:
 
+```bash
+dig +short ALB_DNS_NAME
+sudo sh -c 'printf "%s %s\n" "ALB_PUBLIC_IP" "api.sandbox.example.com" >> /etc/hosts'
+```
 
-the brief description of the mechanism supports the server interface of the e2b sdk by starting the envd in the pod.
+Replace `ALB_DNS_NAME` and `ALB_PUBLIC_IP` with actual values. Remove the hosts-file entry after testing.
 
-Create the preceding resource by kubectl. After the SandboxSet is created, you can see that one sandbox is available:
-![img_9.png](images-en/img_9.png)
+## Verify the deployment
 
-# Service deployment verification
+Run the bundled tests inside the cluster or call the Sandbox API from your local computer.
 
-After the deployment is complete, an ACS cluster is created. In the ACS cluster, there is a sandbox-manager Deployment under the sandbox-system namespace to manage the sandbox. Use the following procedure to verify that the E2B service is running normally, and introduce the use of the demo in the sandbox.
+### Automated verification
 
-This part is divided into automated testing and manual testing. One of the test steps can be selected to verify the core functions. The two test methods verify the same functions and both include sandbox creation, hibernation and reconnection.
+The template creates `acs-sandbox-test-pod` in the `default` namespace and installs `test_code.py`, `test_browser.py`, and `test_desktop.py`.
 
-## Automated testing
-1. Click the computing nest service instance to find the acs cluster contained in the instance.![img_7.png](images-en/img_7.png)
-2. Click the cluster container group interface, find the acs-test-pod, and click the terminal login![img_8.png](images-en/img_8.png)
-3. Execute `python test_code.py`. This sample code verifies sandbox creation, hibernation, and reconnection features.
-4. Wait for the script to verify that all features pass.
-5. The sample also provides test_browser.py and test_desktop.py two samples, respectively verifying the browser and desktop functions
+1. From the service-instance details, open the ACS or ACK console.
+2. Open **Workloads > Pods** for the target cluster and select the `default` namespace.
+3. Find `acs-sandbox-test-pod` and open its terminal.
+4. Run the core feature test:
 
-## Manual test (optional)
-### Configure Domain Name Resolution
-#### Local Configuration Host: For Quick Verification
+   ```bash
+   cd /app
+   python test_code.py
+   ```
 
-1. Obtain the access endpoint of ALB: Alb is used as the Ingress in the ack-sandbox-manager cluster. On the service instance details page, you can find the link to the ACS console. Click the link to view the gateway of sandbox-manager to obtain the access endpoint of ALB, as shown in the following figure
+5. Run the browser or desktop tests when needed:
 
-![image.png](images-en/4f88eb0b-3b84-40f8-ba24-cbb4d4cce3f8_1778031214.png)
+   ```bash
+   python test_browser.py
+   python test_desktop.py
+   ```
 
-2. Obtain the public network address corresponding to the Alb endpoint: locally obtain the public network Ip'ping alb-xxxxxx by ping the access endpoint of ALB'
+A successful core test creates a sandbox and executes code. If the test pod isn't `Running`, inspect its events and container logs first.
 
-3. Configure the public network address and domain name of ALB to the local host:'echo "ALB_PUBLIC_IP api.E2B_DOMAIN" >> /etc/hosts' Example: 'xx.xxx.xx.xxx api.agent-vpc.infra'
+### Local API verification
 
-4. After Host is configured, E2B sandbox can be managed locally without DNS resolution. For specific usage, please refer to the chapter "Using Sandbox demo.
+Set the service outputs and call the sandbox-creation endpoint. For a self-signed certificate, configure `ca-fullchain.pem` as the trust chain:
 
+```bash
+export E2B_DOMAIN='sandbox.example.com'
+export E2B_API_KEY='e2b_replace_with_your_key'
 
-#### Configuring DNS Resolution: For Production Environments
+curl --fail-with-body \
+  --cacert ./ca-fullchain.pem \
+  --request POST "https://api.${E2B_DOMAIN}/sandboxes" \
+  --header 'Content-Type: application/json' \
+  --header "X-API-Key: ${E2B_API_KEY}" \
+  --data '{"templateID":"code-interpreter","timeout":300}'
+```
 
-1. Obtain the access endpoint of ALB: Alb is used as the Ingress in the ack-sandbox-manager cluster. On the service instance details page, you can go to the link of ACS console and click the link to view the gateway of sandbox-manager to obtain the access endpoint of ALB, as shown in the following figure![image.png](images-en/b0eb2ac7-2991-4a7b-8d0e-75d1cd0b430f_1778031214.png)
+A successful response contains a `sandboxID` and a `state` value of `running`. Omit `--cacert` when the service uses a publicly trusted certificate.
 
-2. Configure DNS resolution: Please resolve Alb's access endpoint to the corresponding domain name in CNAME record type,![image.png](images-en/fb0b5101-90ba-4791-a769-9b7065b4851c_1778031214.png)
+### Use the E2B Python SDK
 
-3. If you need to access through the intranet, you can add an intranet domain name for E2B through PrivateZone. (If you select New VPC during deployment, the PrivateZone has been automatically configured for you, and only resolution records need to be added later.) [Optional]]
+Install the SDK and provide the domain and key through environment variables:
 
+```bash
+python3 -m pip install e2b-code-interpreter python-dotenv
+export E2B_DOMAIN='sandbox.example.com'
+export E2B_API_KEY='e2b_replace_with_your_key'
+export SSL_CERT_FILE="$PWD/ca-fullchain.pem"
+```
 
-Replace xxxx with the domain name you specified earlier, and the return value 2xx indicates that the e2b service is running. if it is a self-issued certificate, you need to specify the ca-fullchain.pem. Or use your local certificate by configuring environment variables [this action is to create sandbox] e2b can use "admin-987654321"-> the actual key
+Create `verify_sandbox.py`:
 
-yaml
-curl --cacert fullchain.pem -X POST --location "https://api.agent-vpc.infra/sandboxes "\
--H "Content-Type: application/json "\
--H "X-API-Key: admin-987654321 "\
--d '{
-"templateID": "sandbox ",
-"timeout": 300
-}'
-'''
-
-If there are "sandboxID" and "state":"running" in the json of the returned result, the e2b service can be considered to have run.
-
-### Create a sandbox through the e2b sdk
-
-python
-from e2b_code_interpreter import Sandbox
-
-sbx = Sandbox.create (
-template="sandbox ",
-request_timeout = 60,
-metadata= {
-"e2b.agents.kruise.io/never-timeout": "true"# never expires, does not kill automatically
-}
-)
-r = sbx.commands.run("whoami")
-print(f"Running in sandbox as \"{r.stdout.strip()}\"")
-'''
-
-### Sleep Wake Test Code
-
-yaml
-Write the following file to test_sandbox.py
-
-import time
-from dotenv import load_dotenv
+```python
 from e2b_code_interpreter import Sandbox
 
 
-def main():
-print("Hello from acs-sandbox-test! ")
-load_dotenv(override=True)
-
-Step 1: Create the sandbox
-print("\n [Step 1] Create sandbox...")
-start_time = time.monotonic()
-sandbox = Sandbox.create('sandbox', timeout=1800)
-print(f "sandbox creation time: {time.monotonic() - start_time:.2f} seconds")
-print(f"Sandbox ID: {sandbox.sandbox_id}")
-print(f"envd host: {sandbox.get_host(49983)}")
-
-# Step 2: Pause sandbox
-print("\n [Step 2] Perform sandbox beta_pause...")
-start_time = time.monotonic()
-pause_success = sandbox.beta_pause()
-print(f "pause: {time.monotonic() - start_time:.2f} seconds")
-print(f"pause success: {pause_success}")
-
-print("Wait 60 seconds for the sandbox to pause completely...")
-time.sleep(60)
-
-# Step 3: resume and verify file persistence
-print("\n [Step 3] Reconnect sandbox(resume)...")
-start_time = time.monotonic()
-same_sandbox = sandbox.connect(timeout=180)
-print(f "connect time: {time.monotonic() - start_time:.2f} seconds")
-print(f "Reconnect succeeded. Sandbox ID: {same_sandbox.sandbox_id}")
+def main() -> None:
+    sandbox = Sandbox.create(template="code-interpreter", request_timeout=60)
+    result = sandbox.commands.run("whoami")
+    print(result.stdout.strip())
+    sandbox.kill()
 
 
-print("\nAll steps completed! ")
+if __name__ == "__main__":
+    main()
+```
 
+Run the script:
 
-if __name__ == "__main __":
-main()
-'''
+```bash
+python verify_sandbox.py
+```
+
+To test pause and reconnect behavior, run [`test_sandbox.py`](https://github.com/aliyun-computenest/quickstart-Sandbox-Manager-E2B/blob/main/test_sandbox.py) from this repository. The script is for testing only; don't use it for production jobs.
+
+## Default sandbox types
+
+New ACS and new ACK deployments create several warm pools. Existing ACK deployment currently creates only code-interpreter and desktop warm pools.
+
+| Template ID | Purpose | ACS / new ACK | Existing ACK |
+| --- | --- | --- | --- |
+| `sandbox` | General code execution | Created | Not created |
+| `code-interpreter` | Python code interpreter | Created | Created |
+| `browser` | Browser automation | Created | Not created |
+| `desktop` | Desktop automation | Created | Created |
+| `android` | Android automation | Created | Not created |
+
+If you customize a SandboxSet and need pause and reconnect behavior, don't add a `livenessProbe` or `readinessProbe`. These probes can restart a sandbox while it is paused.
+
+## Troubleshooting
+
+Use this table to diagnose common deployment and first-run failures.
+
+| Symptom | Likely cause | Fix |
+| --- | --- | --- |
+| Deployment page reports missing permissions or can't activate a service | The RAM user lacks ComputeNest, ROS, or cloud-service activation permissions | Ask an administrator to complete the first activation and grant the policies in [Grant permissions to a RAM user](#grant-permissions-to-a-ram-user) |
+| Existing ACK deployment fails while installing add-ons | `ack-virtual-node` is older than `v2.17.0`, or the existing ALB configuration isn't usable | Upgrade the add-on or repair the existing `AlbConfig` in the ACK console, then deploy again |
+| `acs-sandbox-test-pod` is in `ImagePullBackOff` | The VPC can't reach the image registry or its outbound network is incomplete | Check VPC, SNAT, and registry connectivity, then inspect pod events |
+| API returns `401` or `403` | `E2B_API_KEY` is incorrect | Copy the key again from the service instance and remove whitespace from the environment variable |
+| TLS verification fails | The certificate doesn't cover the API and wildcard hostnames, or the client doesn't trust the self-signed CA | Check certificate SANs; set `SSL_CERT_FILE` or `--cacert` for tests, and use a trusted certificate in production |
+| API hostname doesn't resolve | API or wildcard CNAME is missing, or PrivateZone isn't associated with the target VPC | Check DNS records, ALB address type, and the PrivateZone effective scope |
+| A paused sandbox is recreated | A customized SandboxSet has liveness or readiness probes | Remove `livenessProbe` and `readinessProbe`, then apply the SandboxSet again |
+
+If the problem continues, save the service-instance ID, failed resource name, and error message. Don't paste API keys, TLS private keys, or other credentials into a support ticket.
+
+## Next steps
+
+After verification, prepare the service for production use:
+
+- Replace test certificates with certificates issued by a publicly trusted CA.
+- Store `E2B_API_KEY` in a secret manager instead of source code or container images.
+- Adjust Sandbox Manager and warm-pool resources for expected concurrency.
+- Configure monitoring and alerts for ALB, Sandbox Manager, and cluster resources.
+- Limit network exposure and use a public ALB only when required.
+
+中文说明请参见[中文部署指南](index.md)。
