@@ -27,55 +27,71 @@
 
 ## 开始之前
 
-开始部署前，请准备账号权限、域名和证书。选择已有 ACK 时，还必须检查目标集群组件。
+标准 E2B 协议使用 `E2B_DOMAIN` 指定后端服务。开始部署前，您需要准备一个域名和对应的通配符证书。E2B 客户端通过 HTTPS 访问后端服务。
+
+以下步骤面向测试场景。生成的 `fullchain.pem` 和 `privkey.pem` 会在部署时使用。
+
+### 准备域名
+
+测试时可以使用测试域名，例如 `agent-vpc.infra`。
+
+### 获取自签名证书
+
+使用 [OpenKruise 证书生成脚本](https://github.com/openkruise/agents/blob/master/hack/generate-certificates.sh)创建自签名证书。运行以下命令查看脚本参数：
+
+```text
+bash generate-certificates.sh --help
+
+Usage: generate-certificates.sh [OPTIONS]
+
+Options:
+  -d, --domain DOMAIN     Specify certificate domain (default: your.domain.com)
+  -o, --output DIR        Specify output directory (default: .)
+  -D, --days DAYS         Specify certificate validity days (default: 365)
+  -h, --help              Show this help message
+
+Examples:
+  generate-certificates.sh -d myapp.your.domain.com
+  generate-certificates.sh --domain api.your.domain.com --days 730
+```
+
+例如，为 `agent-vpc.infra` 生成有效期为 730 天的测试证书：
+
+```bash
+./generate-certificates.sh --domain agent-vpc.infra --days 730
+```
+
+脚本会生成以下文件：
+
+- `fullchain.pem`：服务器证书公钥。
+- `privkey.pem`：服务器证书私钥。
+- `ca-fullchain.pem`：CA 证书公钥。
+- `ca-privkey.pem`：CA 证书私钥。
+
+脚本会同时生成单域名和通配符域名证书，以兼容原生 E2B 协议和 OpenKruise 定制 E2B 协议。
 
 ### 开通云服务
 
-首次部署时，计算巢会提示开通相关云服务并创建服务角色。此操作通常需要云产品管理员权限，而且每个账号只需执行一次。
+如果账号尚未使用相关云服务，部署页面会提示先开通服务并创建对应的服务角色。开通操作需要云产品管理员权限，而且每个账号只需执行一次。
 
 ![计算巢部署页显示待开通的云服务和服务角色](img_17.png)
 
-您可以采用以下任一方式：
+请采用以下任一方式完成开通：
 
-- 让管理员打开部署页面并按提示完成开通。
-- 临时为部署所用的 RAM 用户授予开通权限，完成后及时回收高权限。
+1. 联系有管理员权限的用户，让管理员打开计算巢服务部署链接并按页面提示开通服务。
+2. 联系有管理员权限的用户，临时为部署所用的 RAM 用户授予管理员权限；RAM 用户完成开通后再回收临时权限。
 
-需要自定义权限时，请参考[首次开通服务权限策略](open_policy.json)。
+开通服务需要的权限请参考[开通服务权限策略](open_policy.json)。
 
 ### 为 RAM 用户授权 { #grant-ram-permissions }
 
-如果您使用 RAM 用户部署，必须授予以下权限：
+如果使用 RAM 用户部署，需要先为该 RAM 用户授权。具体操作请参考[为 RAM 用户授权](https://help.aliyun.com/zh/compute-nest/security-and-compliance/grant-user-permissions-to-a-ram-user)。
 
-- `AliyunComputeNestUserFullAccess`：管理计算巢用户侧资源。
-- `AliyunROSFullAccess`：管理资源编排服务（ROS）资源。
-- [Agent Sandbox 自定义权限策略](policy.json)：管理模板涉及的其他云资源。
+部署本服务需要两个系统权限策略和一个自定义权限策略。请联系有管理员权限的用户授予以下权限：
 
-管理员可以参考[为 RAM 用户授权计算巢权限](https://help.aliyun.com/zh/compute-nest/security-and-compliance/grant-user-permissions-to-a-ram-user)完成授权。请按照最小权限原则管理生产账号。
-
-### 准备域名和 TLS 证书
-
-E2B 客户端通过 HTTPS 访问 Sandbox API。建议使用专用子域名，例如 `sandbox.example.com`，不要直接使用现有业务域名或公共父域。
-
-证书必须覆盖以下域名：
-
-- `sandbox.example.com`
-- `*.sandbox.example.com`
-
-生产环境必须使用受客户端信任的证书。仅在测试环境中，可以使用 [OpenKruise 证书生成脚本](https://github.com/openkruise/agents/blob/master/hack/generate-certificates.sh)创建自签名证书：
-
-```bash
-curl -O https://raw.githubusercontent.com/openkruise/agents/master/hack/generate-certificates.sh
-chmod +x generate-certificates.sh
-./generate-certificates.sh --domain sandbox.example.com --days 365
-```
-
-部署时会使用以下文件：
-
-- `fullchain.pem`：上传到 **TLS 证书**。
-- `privkey.pem`：上传到 **TLS 证书密钥**。
-- `ca-fullchain.pem`：使用自签名证书从本地验证时，配置为客户端信任链。
-
-私钥属于敏感信息。不要把 `privkey.pem` 提交到代码仓库，也不要通过聊天或工单传递。
+- `AliyunComputeNestUserFullAccess`：管理计算巢服务的用户侧权限。
+- `AliyunROSFullAccess`：管理资源编排服务（ROS）的权限。
+- [自定义权限策略](policy.json)：授予模板部署其他云资源所需的权限。
 
 ### 检查已有 ACK 集群
 
@@ -118,7 +134,7 @@ ALB 网络类型只在模板需要安装 `alb-ingress-controller` 时生效。�
 
 | 参数 | 说明 | 建议 |
 | --- | --- | --- |
-| **Sandbox 访问域名** | E2B 客户端使用的基础域名 | 使用专用子域名，例如 `sandbox.example.com` |
+| **Sandbox 访问域名** | E2B 客户端使用的基础域名 | 测试示例使用 `agent-vpc.infra` |
 | **TLS 证书** | PEM 格式的服务器证书链 | 上传 `fullchain.pem` |
 | **TLS 证书密钥** | 与证书匹配的私钥 | 上传 `privkey.pem` |
 | **Sandbox API 访问密钥** | 请求 Sandbox API 时使用 | 使用自动生成值，或输入独立的强密钥 |
@@ -147,12 +163,12 @@ ALB 网络类型只在模板需要安装 `alb-ingress-controller` 时生效。�
 
 ### 生产环境 DNS
 
-在 DNS 服务中至少创建以下记录，其中 `sandbox.example.com` 替换为部署时填写的域名：
+在 DNS 服务中至少创建以下记录，其中 `agent-vpc.infra` 替换为部署时填写的域名：
 
 | 主机记录 | 记录类型 | 记录值 |
 | --- | --- | --- |
-| `api.sandbox.example.com` | CNAME | 服务实例输出的 `ALB_DNS_Name` |
-| `*.sandbox.example.com` | CNAME | 服务实例输出的 `ALB_DNS_Name` |
+| `api.agent-vpc.infra` | CNAME | 服务实例输出的 `ALB_DNS_Name` |
+| `*.agent-vpc.infra` | CNAME | 服务实例输出的 `ALB_DNS_Name` |
 
 如果只允许 VPC 内访问，请使用 PrivateZone 创建相同记录，并把目标 ACK/ACS 集群所在 VPC 加入生效范围。使用现有业务域名时，PrivateZone 的权威解析可能影响该后缀在 VPC 内的其他记录，因此建议使用专用子域名。
 
@@ -164,7 +180,7 @@ ALB 网络类型只在模板需要安装 `alb-ingress-controller` 时生效。�
 
 ```bash
 dig +short ALB_DNS_NAME
-sudo sh -c 'printf "%s %s\n" "ALB_PUBLIC_IP" "api.sandbox.example.com" >> /etc/hosts'
+sudo sh -c 'printf "%s %s\n" "ALB_PUBLIC_IP" "api.agent-vpc.infra" >> /etc/hosts'
 ```
 
 将 `ALB_DNS_NAME` 和 `ALB_PUBLIC_IP` 替换为实际值。测试完成后，删除新增的 hosts 记录。
@@ -201,7 +217,7 @@ sudo sh -c 'printf "%s %s\n" "ALB_PUBLIC_IP" "api.sandbox.example.com" >> /etc/h
 设置服务实例输出，并调用创建沙箱接口。自签名证书需要把 `ca-fullchain.pem` 配置为信任链：
 
 ```bash
-export E2B_DOMAIN='sandbox.example.com'
+export E2B_DOMAIN='agent-vpc.infra'
 export E2B_API_KEY='e2b_replace_with_your_key'
 
 curl --fail-with-body \
@@ -212,7 +228,7 @@ curl --fail-with-body \
   --data '{"templateID":"code-interpreter","timeout":300}'
 ```
 
-成功响应包含 `sandboxID`，且 `state` 为 `running`。使用公有 CA 签发的证书时，可以省略 `--cacert`。
+成功响应包含 `sandboxID`，且 `state` 为 `running`。使用上述自签名证书测试时，需要通过 `--cacert` 指定 CA 证书。
 
 ### 使用 E2B Python SDK
 
@@ -220,7 +236,7 @@ curl --fail-with-body \
 
 ```bash
 python3 -m pip install e2b-code-interpreter python-dotenv
-export E2B_DOMAIN='sandbox.example.com'
+export E2B_DOMAIN='agent-vpc.infra'
 export E2B_API_KEY='e2b_replace_with_your_key'
 export SSL_CERT_FILE="$PWD/ca-fullchain.pem"
 ```
@@ -274,7 +290,7 @@ python verify_sandbox.py
 | 已有 ACK 部署在组件安装阶段失败 | `ack-virtual-node` 版本低于 `v2.17.0`，或现有 ALB 组件配置不可用 | 在 ACK 控制台升级组件或修复现有 `AlbConfig`，然后重新部署 |
 | `acs-sandbox-test-pod` 处于 `ImagePullBackOff` | VPC 无法访问镜像仓库，或网络出口配置不完整 | 检查 VPC、SNAT 和镜像仓库的网络连通性，并查看 Pod 事件 |
 | API 返回 `401` 或 `403` | `E2B_API_KEY` 不正确 | 从服务实例详情页重新复制密钥，并检查环境变量中是否包含多余空格 |
-| TLS 校验失败 | 证书未覆盖 API/通配域名，或客户端不信任自签名 CA | 检查证书 SAN；测试环境设置 `SSL_CERT_FILE` 或 `--cacert`，生产环境使用受信任证书 |
+| TLS 校验失败 | 证书与 `E2B_DOMAIN` 不匹配，或客户端未加载自签名 CA | 重新核对生成证书时使用的域名，并通过 `SSL_CERT_FILE` 或 `--cacert` 指定 CA 证书 |
 | API 域名无法解析 | `api` 或通配 CNAME 未创建，或 PrivateZone 未关联目标 VPC | 检查 DNS 记录、ALB 地址类型和 PrivateZone 生效范围 |
 | 沙箱暂停后被重新创建 | 自定义 SandboxSet 配置了存活或就绪探针 | 移除 `livenessProbe` 和 `readinessProbe` 后重新应用 SandboxSet |
 
@@ -284,7 +300,6 @@ python verify_sandbox.py
 
 部署验证通过后，建议完成以下生产化工作：
 
-- 使用公有 CA 签发的证书替换测试证书。
 - 把 `E2B_API_KEY` 存入密钥管理服务，不要写入代码或镜像。
 - 根据并发量调整 Sandbox Manager 和预热池资源。
 - 为 ALB、Sandbox Manager 和集群资源配置监控与告警。

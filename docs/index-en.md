@@ -27,55 +27,71 @@ Choose **ACS 部署** unless you need an existing cluster or node-level configur
 
 ## Before you begin
 
-Prepare account permissions, a domain, and a certificate before deployment. Existing ACK deployments also require add-on checks on the target cluster.
+The standard E2B protocol uses `E2B_DOMAIN` to identify the backend service. Before deployment, prepare a domain and its wildcard certificate. E2B clients access the backend over HTTPS.
+
+The following certificate steps are intended for testing. You will upload the generated `fullchain.pem` and `privkey.pem` files during deployment.
+
+### Prepare a domain
+
+For testing, you can use a test domain such as `agent-vpc.infra`.
+
+### Generate a self-signed certificate
+
+Use the [OpenKruise certificate generation script](https://github.com/openkruise/agents/blob/master/hack/generate-certificates.sh) to create a self-signed certificate. Run the following command to view its options:
+
+```text
+bash generate-certificates.sh --help
+
+Usage: generate-certificates.sh [OPTIONS]
+
+Options:
+  -d, --domain DOMAIN     Specify certificate domain (default: your.domain.com)
+  -o, --output DIR        Specify output directory (default: .)
+  -D, --days DAYS         Specify certificate validity days (default: 365)
+  -h, --help              Show this help message
+
+Examples:
+  generate-certificates.sh -d myapp.your.domain.com
+  generate-certificates.sh --domain api.your.domain.com --days 730
+```
+
+For example, generate a 730-day test certificate for `agent-vpc.infra`:
+
+```bash
+./generate-certificates.sh --domain agent-vpc.infra --days 730
+```
+
+The script creates these files:
+
+- `fullchain.pem`: Server certificate public key.
+- `privkey.pem`: Server certificate private key.
+- `ca-fullchain.pem`: CA certificate public key.
+- `ca-privkey.pem`: CA certificate private key.
+
+The script generates both single-domain and wildcard certificates for compatibility with the native E2B protocol and the OpenKruise custom E2B protocol.
 
 ### Activate cloud services
 
-On the first deployment, ComputeNest prompts you to activate dependent cloud services and create service-linked roles. This operation usually requires cloud-product administrator permissions and only needs to be completed once per account.
+If the account hasn't used the required cloud services, the deployment page prompts you to activate them and create the corresponding service roles. Activation requires cloud-product administrator permissions and only needs to be completed once per account.
 
 ![ComputeNest deployment page listing cloud services and service-linked roles to activate](img_17.png)
 
-Use either of these methods:
+Use either method to activate the services:
 
-- Ask an administrator to open the deployment page and complete the activation prompts.
-- Temporarily grant activation permissions to the RAM user that performs the deployment, then remove the elevated permissions.
+1. Ask an administrator to open the ComputeNest deployment link and activate the services as prompted.
+2. Ask an administrator to temporarily grant administrator permissions to the RAM user performing the deployment. Remove the temporary permissions after activation.
 
-If you need a custom policy, review the [first-time service activation policy](open_policy.json).
+Review the [service activation policy](open_policy.json) for the required permissions.
 
 ### Grant permissions to a RAM user
 
-A Resource Access Management (RAM) user must have these policies:
+If you deploy as a Resource Access Management (RAM) user, authorize that user first. See [Grant permissions to a RAM user](https://help.aliyun.com/zh/compute-nest/security-and-compliance/grant-user-permissions-to-a-ram-user) for the procedure.
 
-- `AliyunComputeNestUserFullAccess` to manage user-side ComputeNest resources.
-- `AliyunROSFullAccess` to manage Resource Orchestration Service (ROS) resources.
-- The [Agent Sandbox custom policy](policy.json) to manage other resources used by the templates.
+This service requires two system policies and one custom policy. Ask an administrator to grant these permissions:
 
-An administrator can follow [Grant permissions to a RAM user](https://help.aliyun.com/zh/compute-nest/security-and-compliance/grant-user-permissions-to-a-ram-user). Apply least privilege to production accounts.
-
-### Prepare a domain and TLS certificate
-
-E2B clients access the Sandbox API over HTTPS. Use a dedicated subdomain such as `sandbox.example.com`; don't use an existing business domain or its public parent domain.
-
-The certificate must cover both names:
-
-- `sandbox.example.com`
-- `*.sandbox.example.com`
-
-Use a publicly trusted certificate in production. For testing only, use the [OpenKruise certificate generation script](https://github.com/openkruise/agents/blob/master/hack/generate-certificates.sh) to create a self-signed certificate:
-
-```bash
-curl -O https://raw.githubusercontent.com/openkruise/agents/master/hack/generate-certificates.sh
-chmod +x generate-certificates.sh
-./generate-certificates.sh --domain sandbox.example.com --days 365
-```
-
-The deployment uses these files:
-
-- `fullchain.pem`: Upload this file under **TLS Certificate**.
-- `privkey.pem`: Upload this file under **TLS Private Key**.
-- `ca-fullchain.pem`: Configure this file as the client trust chain for local tests with a self-signed certificate.
-
-The private key is sensitive. Don't commit `privkey.pem` or paste it into chat messages or tickets.
+- `AliyunComputeNestUserFullAccess` to manage user-side ComputeNest permissions.
+- `AliyunROSFullAccess` to manage Resource Orchestration Service (ROS) permissions.
+- The [custom policy](policy.json) for other resources deployed by the template.
 
 ### Check an existing ACK cluster
 
@@ -118,7 +134,7 @@ Enter these Sandbox settings:
 
 | Setting | Purpose | Recommendation |
 | --- | --- | --- |
-| **Sandbox Domain** | Base domain used by E2B clients | Use a dedicated subdomain such as `sandbox.example.com` |
+| **Sandbox Domain** | Base domain used by E2B clients | The test example uses `agent-vpc.infra` |
 | **TLS Certificate** | PEM-encoded server certificate chain | Upload `fullchain.pem` |
 | **TLS Private Key** | Private key matching the certificate | Upload `privkey.pem` |
 | **Sandbox API Key** | Access key for Sandbox API requests | Keep the generated value or enter a separate strong key |
@@ -147,12 +163,12 @@ After deployment, resolve the API hostname and wildcard hostname to the ALB endp
 
 ### Production DNS
 
-Create at least these records, replacing `sandbox.example.com` with the domain entered during deployment:
+Create at least these records, replacing `agent-vpc.infra` with the domain entered during deployment:
 
 | Hostname | Record type | Value |
 | --- | --- | --- |
-| `api.sandbox.example.com` | CNAME | `ALB_DNS_Name` from the service instance |
-| `*.sandbox.example.com` | CNAME | `ALB_DNS_Name` from the service instance |
+| `api.agent-vpc.infra` | CNAME | `ALB_DNS_Name` from the service instance |
+| `*.agent-vpc.infra` | CNAME | `ALB_DNS_Name` from the service instance |
 
 For VPC-only access, create the same records in PrivateZone and associate the VPC that contains the target ACS or ACK cluster. PrivateZone authoritative resolution can affect other records under the same suffix, so use a dedicated subdomain.
 
@@ -164,7 +180,7 @@ A hosts file is suitable only for temporary testing and can't express a wildcard
 
 ```bash
 dig +short ALB_DNS_NAME
-sudo sh -c 'printf "%s %s\n" "ALB_PUBLIC_IP" "api.sandbox.example.com" >> /etc/hosts'
+sudo sh -c 'printf "%s %s\n" "ALB_PUBLIC_IP" "api.agent-vpc.infra" >> /etc/hosts'
 ```
 
 Replace `ALB_DNS_NAME` and `ALB_PUBLIC_IP` with actual values. Remove the hosts-file entry after testing.
@@ -201,7 +217,7 @@ A successful core test creates a sandbox and executes code. If the test pod isn'
 Set the service outputs and call the sandbox-creation endpoint. For a self-signed certificate, configure `ca-fullchain.pem` as the trust chain:
 
 ```bash
-export E2B_DOMAIN='sandbox.example.com'
+export E2B_DOMAIN='agent-vpc.infra'
 export E2B_API_KEY='e2b_replace_with_your_key'
 
 curl --fail-with-body \
@@ -212,7 +228,7 @@ curl --fail-with-body \
   --data '{"templateID":"code-interpreter","timeout":300}'
 ```
 
-A successful response contains a `sandboxID` and a `state` value of `running`. Omit `--cacert` when the service uses a publicly trusted certificate.
+A successful response contains a `sandboxID` and a `state` value of `running`. When testing with the self-signed certificate above, use `--cacert` to specify the CA certificate.
 
 ### Use the E2B Python SDK
 
@@ -220,7 +236,7 @@ Install the SDK and provide the domain and key through environment variables:
 
 ```bash
 python3 -m pip install e2b-code-interpreter python-dotenv
-export E2B_DOMAIN='sandbox.example.com'
+export E2B_DOMAIN='agent-vpc.infra'
 export E2B_API_KEY='e2b_replace_with_your_key'
 export SSL_CERT_FILE="$PWD/ca-fullchain.pem"
 ```
@@ -274,7 +290,7 @@ Use this table to diagnose common deployment and first-run failures.
 | Existing ACK deployment fails while installing add-ons | `ack-virtual-node` is older than `v2.17.0`, or the existing ALB configuration isn't usable | Upgrade the add-on or repair the existing `AlbConfig` in the ACK console, then deploy again |
 | `acs-sandbox-test-pod` is in `ImagePullBackOff` | The VPC can't reach the image registry or its outbound network is incomplete | Check VPC, SNAT, and registry connectivity, then inspect pod events |
 | API returns `401` or `403` | `E2B_API_KEY` is incorrect | Copy the key again from the service instance and remove whitespace from the environment variable |
-| TLS verification fails | The certificate doesn't cover the API and wildcard hostnames, or the client doesn't trust the self-signed CA | Check certificate SANs; set `SSL_CERT_FILE` or `--cacert` for tests, and use a trusted certificate in production |
+| TLS verification fails | The certificate doesn't match `E2B_DOMAIN`, or the client hasn't loaded the self-signed CA | Check the domain used to generate the certificate, then provide the CA certificate through `SSL_CERT_FILE` or `--cacert` |
 | API hostname doesn't resolve | API or wildcard CNAME is missing, or PrivateZone isn't associated with the target VPC | Check DNS records, ALB address type, and the PrivateZone effective scope |
 | A paused sandbox is recreated | A customized SandboxSet has liveness or readiness probes | Remove `livenessProbe` and `readinessProbe`, then apply the SandboxSet again |
 
@@ -284,7 +300,6 @@ If the problem continues, save the service-instance ID, failed resource name, an
 
 After verification, prepare the service for production use:
 
-- Replace test certificates with certificates issued by a publicly trusted CA.
 - Store `E2B_API_KEY` in a secret manager instead of source code or container images.
 - Adjust Sandbox Manager and warm-pool resources for expected concurrency.
 - Configure monitoring and alerts for ALB, Sandbox Manager, and cluster resources.
