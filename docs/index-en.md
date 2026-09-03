@@ -1,10 +1,10 @@
-# Use E2B to manage security sandbox in ACS cluster
+# Use E2B to manage Agent Sandbox
 
 ## Overview
 
 E2B is a popular open source security sandbox framework that provides a simple and easy-to-use Python and JavaScript SDK for users to create, query, execute code, and request ports on security sandboxes. The ack-sandbox-manager component is a backend application compatible with the E2B protocol, enabling users to build a sandbox infrastructure with performance comparable to that of native E2B in any K8s cluster.
 
-This service provides a solution for quickly building a security sandbox in an ACS cluster and supports interaction using the E2B protocol.
+This service supports security sandbox deployment on ACS, a new ACK cluster, or an existing ACK cluster, with interaction through the E2B protocol.
 
 ## Pre-preparation
 
@@ -75,11 +75,23 @@ The permission policies required to deploy this service include two system permi
 -Permission policy:[policy.json](https://github.com/aliyun-computenest/quickstart-Sandbox-Manager-E2B/blob/main/docs/policy.json)
 
 
+## Choose a deployment mode
+
+On the China site, select `ACS部署`, `ACK 部署`, or `已有 ACK 部署`. On the international site, select `ACS 部署`, `ACK 部署`, or `Existing ACK Deployment`. ACS mode creates an ACS cluster, ACK mode creates a new ACK cluster, and existing ACK mode reuses an existing cluster.
+
+Before using an existing ACK cluster, confirm that:
+
+- `alb-ingress-controller` is either absent or installed and usable. If absent, the template installs it and creates a default AlbConfig; otherwise, it preserves the existing configuration.
+- `ack-virtual-node` is either absent or at least v2.17.0. If absent, the template installs it; upgrade older installed versions manually first.
+- The target VPC has two vSwitches in different zones for ALB.
+- After deployment, follow the service outputs to configure DNS and Ingress HTTPS. The existing ACK template does not output `ALB_DNS_Name` like the new-cluster templates.
+
+
 ## Deployment process
 
-1. Open the compute nest service [deployment link](https://computenest.console.aliyun.com/service/instance/create/cn-hangzhou?type=user&ServiceId=service-47d7c54c78604e0bbe79)
+1. Open the ComputeNest deployment link for the [China site](https://computenest.console.aliyun.com/service/instance/create/cn-hangzhou?type=user&ServiceId=service-47d7c54c78604e0bbe79) or [international site](https://computenest.console.alibabacloud.com/service/instance/create/ap-southeast-1?type=user&ServiceId=service-7c3a2fa4dd3e46519c59).
 
-2. Fill in the relevant deployment parameters, select the deployment region, Service CIDR of the ACS cluster, and configure the VPC
+2. Select a deployment mode, then fill in the deployment parameters, region, cluster Service CIDR, and VPC configuration.
 
 ![image.png](images-en/d6ba943d-0c83-42bd-a00c-2d0facd8396b_1778031214.png)
 
@@ -102,7 +114,7 @@ The permission policies required to deploy this service include two system permi
 
 ![image.png](images-en/0d7faeee-7052-4226-a2ca-38f8f3606dcc_1778031214.png)
 
-## OpenClaw sandbox definition description
+## Agent Sandbox definition
 
 By default, the computing nest uses the following yaml to create a single-copy SandboxSet preheating pool (equivalent to an e2b template). If you build a mirror later, you can directly replace the containers mirror in the cluster. In order to improve the pulling speed, it can also be replaced with an intranet mirror: registry-${RegionId}
 

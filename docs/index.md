@@ -1,10 +1,10 @@
-# 在ACS集群中使用 E2B 管理安全沙箱
+# 使用 E2B 管理 Agent Sandbox
 
 ## 概述
 
 E2B 是一个流行的开源安全沙箱框架，提供了一套简单易用的 Python 与 JavaScript SDK 供用户对安全沙箱进行创建、查询、执行代码、请求端口等操作。 ack-sandbox-manager组件是一个兼容 E2B 协议的后端应用，使用户在任何 K8s 集群中一键搭建一个性能媲美原生 E2B 的沙箱基础设施。
 
-本服务提供了在ACS 集群中快速搭建安全沙箱的解决方案，支持使用 E2B 协议进行交互。
+本服务支持在 ACS、新建 ACK 或已有 ACK 集群中快速搭建安全沙箱，并使用 E2B 协议进行交互。
 
 ## 前置准备
 
@@ -75,11 +75,23 @@ Examples:
 - 权限策略：[policy.json](https://github.com/aliyun-computenest/quickstart-Sandbox-Manager-E2B/blob/main/docs/policy.json)
 
 
+## 选择部署方式
+
+国内站可选择 `ACS部署`、`ACK 部署` 或 `已有 ACK 部署`；国际站可选择 `ACS 部署`、`ACK 部署` 或 `Existing ACK Deployment`。ACS 模式创建 ACS 集群，ACK 模式创建新的 ACK 集群，已有 ACK 模式复用现有集群。
+
+使用已有 ACK 集群前，请确认：
+
+- `alb-ingress-controller` 未安装或已安装且可用。未安装时模板会自动安装并创建默认 AlbConfig；已安装时保留现有配置。
+- `ack-virtual-node` 未安装或版本不低于 v2.17.0。未安装时模板会自动安装；低版本需要先手动升级。
+- 目标 VPC 中有两个位于不同可用区的交换机，供 ALB 使用。
+- 部署完成后，按照服务输出配置 DNS 和 Ingress HTTPS。已有 ACK 模板不会像新建集群模板一样输出 `ALB_DNS_Name`。
+
+
 ## 部署流程
 
-1.  打开计算巢服务[部署链接](https://computenest.console.aliyun.com/service/instance/create/cn-hangzhou?type=user&ServiceId=service-47d7c54c78604e0bbe79)
+1.  打开计算巢服务部署链接：[国内站](https://computenest.console.aliyun.com/service/instance/create/cn-hangzhou?type=user&ServiceId=service-47d7c54c78604e0bbe79)或[国际站](https://computenest.console.alibabacloud.com/service/instance/create/ap-southeast-1?type=user&ServiceId=service-7c3a2fa4dd3e46519c59)
     
-2.  填写相关部署参数、选择部署地域、ACS集群的Service CIDR, 专有网络配置
+2.  选择部署方式，填写相关部署参数、部署地域、集群 Service CIDR 和专有网络配置
     
     ![image.png](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/8oLl952z0kPRylap/img/d6ba943d-0c83-42bd-a00c-2d0facd8396b.png)
     
@@ -102,7 +114,7 @@ Examples:
 
 ![image.png](https://alidocs.oss-cn-zhangjiakou.aliyuncs.com/res/8oLl952z0kPRylap/img/0d7faeee-7052-4226-a2ca-38f8f3606dcc.png)
 
-## OpenClaw沙箱定义说明
+## Agent Sandbox 沙箱定义说明
 
 计算巢默认 会通过以下 yaml 创建一个单副本的 SandboxSet预热池（相当于e2b的模版），后续如果自己构建了镜像，可以直接替换集群中的containers的镜像。 若为了提升拉取速度，也可替换为内网镜像：registry-${RegionId}-vpc.ack.aliyuncs.com/acs/agent-runtime:v0.0.2
 
