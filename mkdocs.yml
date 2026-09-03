@@ -1,15 +1,3 @@
-site_name: Agent Sandbox on Alibaba Cloud ComputeNest
-site_description: Deploy and verify an E2B-compatible Agent Sandbox service on ACS or ACK.
-repo_url: https://github.com/aliyun-computenest/quickstart-Sandbox-Manager-E2B
-repo_name: aliyun-computenest/quickstart-Sandbox-Manager-E2B
-edit_uri: edit/main/docs/
-
-theme:
+site_name: Aliyun 计算巢 x Demo
+theme: 
   name: aliyuncomputenest
-
-markdown_extensions:
-  - attr_list
-
-nav:
-  - 中文: index.md
-  - English: index-en.md

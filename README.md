@@ -1,28 +1,18 @@
-# Agent Sandbox on Alibaba Cloud ComputeNest
+# QuickStart Demo
 
-Deploy an E2B-compatible Agent Sandbox service on Alibaba Cloud Container Compute Service (ACS), a new Container Service for Kubernetes (ACK) cluster, or an existing ACK cluster.
+查看服务实例部署在线文档，请访问 [服务实例部署文档](https://aliyun-computenest.github.io/quickstart-demo)
 
-- [中文部署指南](docs/index.md)
-- [English deployment guide](docs/index-en.md)
-- [Deploy in Alibaba Cloud China](https://computenest.console.aliyun.com/service/instance/create/cn-hangzhou?type=user&ServiceId=service-47d7c54c78604e0bbe79)
-- [Deploy on Alibaba Cloud International](https://computenest.console.alibabacloud.com/service/instance/create/ap-southeast-1?type=user&ServiceId=service-7c3a2fa4dd3e46519c59)
+本文档通过 [MkDocs](https://github.com/mkdocs/mkdocs) 生成，请参考[使用文档](https://www.mkdocs.org/getting-started/#installation) 
 
-## Preview the documentation locally
+1）安装和使用：
 
-The documentation site uses [MkDocs](https://www.mkdocs.org/) and the Alibaba Cloud ComputeNest theme.
-
-```bash
-python3 -m pip install --upgrade mkdocs mkdocs-aliyun-computenest
-mkdocs serve
+```shell
+$ pip install mkdocs # or use pip3 安装文档工具
+$ pip install --upgrade mkdocs-aliyun-computenest # or use pip3 安装计算巢主题
+$ mkdocs serve # in root folder
 ```
+2）本地预览：本地在浏览器打开 [http://localhost:8000/](http://localhost:8000/) 。
 
-Open <http://127.0.0.1:8000/>. MkDocs rebuilds the site when you edit a file under `docs/`.
+3）本地新建分支后，提交 `Pull request` 到 `main`分支。
 
-## Contribute
-
-1. Create a branch from `main`.
-2. Update both `docs/index.md` and `docs/index-en.md` when product behavior changes.
-3. Run `mkdocs build --strict`.
-4. Open a pull request against `main`.
-
-GitHub Actions publishes the site after the pull request is merged.
+4）合并至 `main` 分支后，查看 pages 部署结果。

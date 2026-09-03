@@ -14,7 +14,7 @@ def main():
     # 步骤1: 创建 sandbox
     print("\n[步骤1] 创建 sandbox...")
     start_time = time.monotonic()
-    sandbox = Sandbox.create('code-interpreter', timeout=1800)
+    sandbox = Sandbox.create('sandbox', timeout=1800)
     print(f"创建 sandbox 耗时: {time.monotonic() - start_time:.2f} 秒")
     print(f"Sandbox ID: {sandbox.sandbox_id}")
     print(f"envd host: {sandbox.get_host(49983)}")
