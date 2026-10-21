@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <meta name="description" content="计算巢是阿里云开放给企业应用服务商的服务管理平台。服务商能够在计算巢上发布私有化部署服务，为其客户提供云上软件一键部署的能力；同时也支持全托管模式的服务，赋能服务商托管其客户资源。">
+  <title>Use E2B to manage Agent Sandbox - Aliyun 计算巢 x Demo</title>
+
+  <link rel="shortcut icon" href="../img/favicon.ico">
+
+  <link rel="stylesheet" href="https://unpkg.com/purecss@1.0.0/build/pure-min.css">
+  <link rel="stylesheet" href="../css/theme.css">
+  
+
+  
+
+  
+  
+
+  
+    <script src="../search/main.js"></script>
+  
+
+  
+
+  <script src="../js/highlight.min.js"></script>
+  <script>hljs.highlightAll();</script>
+</head>
+
+<body>
+  <div class="container">
+    <div class="nav">
+      <div class="nav-inner">
+        <div class="logo">
+          <img src="./img/logo-2x.png">
+        </div>
+        <div class="nav-list">
+          <ul>
+          
+              <li><a href="#use-e2b-to-manage-agent-sandbox">Use E2B to manage Agent Sandbox</a></li>
+              
+                  <li><a href="#overview">Overview</a></li>
+                  
+              
+                  <li><a href="#prerequisites">Prerequisites</a></li>
+                  
+                      <li class="li-h3"><a href="#prepare-domain-name">Prepare Domain Name</a></li>
+                  
+                      <li class="li-h3"><a href="#obtain-a-self-signed-certificate">Obtain a self-signed certificate</a></li>
+                  
+                      <li class="li-h3"><a href="#activate-service">Activate Service</a></li>
+                  
+                      <li class="li-h3"><a href="#authorize-ram-users">Authorize RAM users</a></li>
+                  
+              
+                  <li><a href="#choose-a-deployment-mode">Choose a deployment mode</a></li>
+                  
+              
+                  <li><a href="#deployment-process">Deployment process</a></li>
+                  
+              
+                  <li><a href="#sandbox-configuration-and-sdk-usage">Sandbox configuration and SDK usage</a></li>
+                  
+              
+                  <li><a href="#verify-the-deployment">Verify the deployment</a></li>
+                  
+                      <li class="li-h3"><a href="#use-the-test-pod-in-the-cluster">Use the test Pod in the cluster</a></li>
+                  
+                      <li class="li-h3"><a href="#connect-from-another-client">Connect from another client</a></li>
+                  
+              
+          
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="content theme-github">
+      
+      <div class="content-inner">        
+        
+        <h1 id="use-e2b-to-manage-agent-sandbox">Use E2B to manage Agent Sandbox</h1>
+<h2 id="overview">Overview</h2>
+<p>E2B is a popular open source security sandbox framework that provides a simple and easy-to-use Python and JavaScript SDK for users to create, query, execute code, and request ports on security sandboxes. The ack-sandbox-manager component is a backend application compatible with the E2B protocol, enabling users to build a sandbox infrastructure with performance comparable to that of native E2B in any K8s cluster.</p>
+<p>This service supports security sandbox deployment on ACS, a new ACK cluster, or an existing ACK cluster, with interaction through the E2B protocol.</p>
+<h2 id="prerequisites">Prerequisites</h2>
+<p>The standard E2B protocol requires a domain name (E2B_DOMAIN) to specify the backend service. To do this, you need to prepare your own domain name. The E2B client must request the backend through the HTTPS protocol, so it also needs to apply for a wildcard certificate for the service.</p>
+<p>The following describes the steps for preparing domain names and certificates in the test scenario. The generated fullchain.pem and privkey.pem files will be used in the subsequent deployment phase.</p>
+<h3 id="prepare-domain-name">Prepare Domain Name</h3>
+<ul>
+<li>In the test scenario, to facilitate verification, you can use the test domain name, for example: agent-vpc.infra.</li>
+</ul>
+<h3 id="obtain-a-self-signed-certificate">Obtain a self-signed certificate</h3>
+<p>For the certificate preparation steps, see the <a href="https://www.alibabacloud.com/help/en/cs/user-guide/create-an-agent-sandbox">official Agent Sandbox guide</a>. The <a href="https://github.com/openkruise/agents/blob/master/hack/generate-certificates.sh">generate-certificates.sh</a> script generates the server certificate (<code>fullchain.pem</code>), its private key (<code>privkey.pem</code>), and the CA certificate (<code>ca-fullchain.pem</code>). Upload the server certificate and its private key during deployment. Other clients must trust the CA certificate when using a self-signed certificate.</p>
+<h3 id="activate-service">Activate Service</h3>
+<p>If you have not used the relevant cloud service before, you will be prompted to activate the service and create the corresponding service role during deployment, as shown in the following figure,
+<img alt="Service activation" src="../img_17.png" />
+The permissions required in this step are relatively risky (the administrator permissions of the cloud product are required). We recommend that you use the following two methods to activate:
+Note: opening is a one-time operation, and only needs to be opened during the first operation.
+1. Contact a user with administrator rights to open the computing nest service deployment link, and let the administrator user open it according to the prompt.
+2. Contact a user with administrator permissions to temporarily grant administrator permissions to the RAM user. After the RAM user is authorized, it can be activated. The required permissions are as follows.
+Policy:<a href="../open_policy.json">open_policy.json</a></p>
+<h3 id="authorize-ram-users">Authorize RAM users</h3>
+<p>If you are using a RAM user, you must authorize the RAM user to complete the deployment process. For more information, see <a href="https://help.aliyun.com/zh/compute-nest/security-and-compliance/grant-user-permissions-to-a-ram-user">Authorization Document</a>.</p>
+<p>To deploy this service, ask an administrator to grant the following policies to the RAM user.</p>
+<p><strong>System permission policies:</strong></p>
+<ul>
+<li><code>AliyunComputeNestUserFullAccess</code>: Manage ComputeNest user permissions.</li>
+<li><code>AliyunROSFullAccess</code>: Manage Resource Orchestration Service (ROS) permissions.</li>
+</ul>
+<p><strong>Custom permission policy:</strong></p>
+<ul>
+<li><a href="../policy.json">policy.json</a></li>
+</ul>
+<h2 id="choose-a-deployment-mode">Choose a deployment mode</h2>
+<p>Choose one of the following deployment modes:</p>
+<table>
+<thead>
+<tr>
+<th>Deployment mode</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ACS Deployment</td>
+<td>Create an ACS cluster.</td>
+</tr>
+<tr>
+<td>ACK Deployment</td>
+<td>Create a new ACK cluster.</td>
+</tr>
+<tr>
+<td>Existing ACK Deployment</td>
+<td>Deploy Sandbox components to an existing ACK cluster.</td>
+</tr>
+</tbody>
+</table>
+<p>Before using an existing ACK cluster, confirm that:</p>
+<ul>
+<li><code>alb-ingress-controller</code> is either absent or installed and usable. If absent, the template installs it and creates a default AlbConfig; otherwise, it preserves the existing configuration.</li>
+<li><code>ack-virtual-node</code> is either absent or at least v2.17.0. If absent, the template installs it; upgrade older installed versions manually first.</li>
+<li>The target VPC has two vSwitches in different zones for ALB.</li>
+<li>For an existing ACK deployment, follow the service outputs to configure DNS and Ingress HTTPS, and obtain the ALB endpoint from the cluster console.</li>
+</ul>
+<h2 id="deployment-process">Deployment process</h2>
+<ol>
+<li>Open the ComputeNest deployment link for the <a href="https://computenest.console.aliyun.com/service/instance/create/cn-hangzhou?type=user&amp;ServiceId=service-47d7c54c78604e0bbe79">China site</a> or <a href="https://computenest.console.alibabacloud.com/service/instance/create/ap-southeast-1?type=user&amp;ServiceId=service-7c3a2fa4dd3e46519c59">international site</a>.</li>
+<li>
+<p>Choose a deployment mode and region. For a new cluster, configure the Service CIDR and VPC. For an existing ACK cluster, select the cluster and configure the network settings required by ALB.</p>
+<p><img alt="Deployment parameters" src="../images-en/d6ba943d-0c83-42bd-a00c-2d0facd8396b_1778031214.png" /></p>
+</li>
+<li>
+<p>Enter the E2B domain prepared earlier. Upload <code>fullchain.pem</code> as the TLS certificate and <code>privkey.pem</code> as the TLS private key.</p>
+<p><img alt="Domain and TLS certificate" src="../images-en/test1-1.png" /></p>
+</li>
+<li>
+<p>Configure the <code>E2B_API_KEY</code> used to access the E2B API.</p>
+</li>
+<li>Set the CPU and memory for Sandbox Manager as needed. The defaults are 2 vCPUs and 4 GiB.</li>
+<li>Confirm the order to start deployment.</li>
+<li>After deployment succeeds, obtain <code>E2B_API_KEY</code> and <code>E2B_DOMAIN</code> from the service instance details page.</li>
+</ol>
+<p><img alt="Service outputs" src="../images-en/0d7faeee-7052-4226-a2ca-38f8f3606dcc_1778031214.png" /></p>
+<h2 id="sandbox-configuration-and-sdk-usage">Sandbox configuration and SDK usage</h2>
+<p>For SandboxSet configuration, image requirements, E2B SDK integration, and pause/resume examples, see the <a href="https://www.alibabacloud.com/help/en/cs/user-guide/create-an-agent-sandbox">official Agent Sandbox guide</a>. This guide links to the official examples instead of maintaining duplicate sample code.</p>
+<p>The ComputeNest fix release sets the warm pool replica count of the <code>code-interpreter</code> SandboxSet in the <code>default</code> namespace to 1.</p>
+<h2 id="verify-the-deployment">Verify the deployment</h2>
+<p>Open the ACS or ACK cluster from the service instance resource list. Sandbox Manager runs in <code>sandbox-system</code>; the test Pod runs in <code>default</code>.</p>
+<h3 id="use-the-test-pod-in-the-cluster">Use the test Pod in the cluster</h3>
+<ol>
+<li>Open the Pods page in the cluster console and select the <code>default</code> namespace.</li>
+<li>Find <code>acs-sandbox-test-pod</code> (the full name of the test Pod). Wait for dependency installation to finish, then open its terminal.</li>
+<li>Run the following commands in the terminal:</li>
+</ol>
+<pre><code class="language-bash">cd /app
+python test_code.py
+</code></pre>
+<p>The script verifies sandbox creation, code and command execution, and file operations. Wait for all checks to pass. Deployment modes that include the corresponding samples also support <code>python test_browser.py</code> and <code>python test_desktop.py</code>.</p>
+<p>For an existing ACK cluster, complete the DNS and Ingress HTTPS configuration described in the service outputs before running the tests.</p>
+<h3 id="connect-from-another-client">Connect from another client</h3>
+<p>Follow the <a href="https://www.alibabacloud.com/help/en/cs/user-guide/create-an-agent-sandbox">official Agent Sandbox guide</a> to configure DNS, HTTPS, and the E2B SDK. Use <code>E2B_DOMAIN</code> and <code>E2B_API_KEY</code> from the service instance outputs.</p>
+<p>For a private ALB, the client must have network access to the target VPC. When using a self-signed certificate, configure the client to trust the CA certificate <code>ca-fullchain.pem</code>.</p>
+        
+      </div>
+
+      <div class="copyrights">© 2009-2022 Aliyun.com 版权所有</div>
+    </div>
+  </div>
+  
+  <!--
+  MkDocs version      : 1.6.1
+  Docs Build Date UTC : 2026-10-21 14:00:52.524158+00:00
+  -->
+</body>
+</html>
